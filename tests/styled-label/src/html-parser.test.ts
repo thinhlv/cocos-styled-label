@@ -1,4 +1,4 @@
-import { HtmlTextParser } from '../../../assets/scripts/shared/cocos/components/styled-label/styled-label.layout';
+import { HtmlTextParser } from '../../../assets/styled-label/styled-label.layout';
 
 describe('HtmlTextParser', () => {
     let parser: HtmlTextParser;

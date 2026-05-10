@@ -26,7 +26,7 @@ function makeMockCanvas() {
 };
 
 // ── Import StyledLabel after mocks are set up ─────────────────────────────────
-import { StyledLabel } from '../../../assets/scripts/shared/cocos/components/styled-label/styled-label';
+import { StyledLabel } from '../../../assets/styled-label/styled-label';
 import { Texture2D } from 'cc';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import {
     buildLayout, wordBaselineY,
     HAlign, VAlign, OverflowMode, TextTransform,
     ILayoutParams, ITextSegment, ITextStyle,
-} from '../../../assets/scripts/shared/cocos/components/styled-label/styled-label.layout';
+} from '../../../assets/styled-label/styled-label.layout';
 
 // Each char = 10px wide, line height = 20px at scale=1.
 const measure = (text: string, _style: ITextStyle | undefined, scale: number) => ({
