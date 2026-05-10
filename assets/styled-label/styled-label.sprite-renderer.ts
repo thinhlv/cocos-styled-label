@@ -68,17 +68,11 @@ export class NativeSpriteRenderer implements ISpriteRenderer {
         private readonly _createRD: () => RenderData,
     ) {
         const self = this;
-        let _fillCount = 0;
         this.overlayAssembler = {
             createData: () => self._renderData,
             updateRenderData: () => {},
             updateColor: () => { self._applyNodeColor(); },
-            fillBuffers: (comp: UIRenderer) => {
-                const rd = self._renderData;
-                if (_fillCount < 5) console.log(`[SL.overlay] fillBuffers[${_fillCount}] rd=${!!rd} vCount=${rd?.vertexCount ?? 0}`);
-                _fillCount++;
-                self._fillBuffers(comp);
-            },
+            fillBuffers: (comp: UIRenderer) => { self._fillBuffers(comp); },
         };
     }
 
@@ -112,7 +106,6 @@ export class NativeSpriteRenderer implements ISpriteRenderer {
         const quads = this._quads;
         const vCount = quads.length * 4;
         const iCount = quads.length * 6;
-        console.log(`[SL.native] endFrame: quads=${quads.length}`);
         if (vCount === 0) { this._renderData = null; return; }
 
         if (!this._renderData) this._renderData = this._createRD();
@@ -155,12 +148,11 @@ export class NativeSpriteRenderer implements ISpriteRenderer {
         this._flagVersion = -1;
 
         // Sync texture/sampler and local positions to native draw info.
-        // updateRenderData: sets material (passDirty), texture/sampler (textureDirty),
-        // updates hash, and calls fillRender2dBuffer(data) which pushes local x/y/z
-        // to _render2dBuffer so the C++ batcher can apply world transform.
+        // updateRenderData sets material/texture on NativeRenderDrawInfo and calls
+        // fillRender2dBuffer(data), which pushes local x/y/z to _render2dBuffer so
+        // the C++ batcher can apply world transform. Without this, JSB renders nothing.
         if (rd.frame !== this._atlasFrame) rd.textureDirty = true;
         rd.updateRenderData(this._comp, this._atlasFrame!);
-        console.log(`[SL.native] endFrame done: frame=${!!rd.frame} vCount=${rd.vertexCount} hash=${rd.dataHash}`);
     }
 
     get overlayRenderData(): RenderData | null { return this._renderData; }

@@ -90,13 +90,10 @@ const _quadAssembler = {
         ib[io++] = vid + 1; ib[io++] = vid + 3; ib[io++] = vid + 2;
         mb.indexOffset += 6;
 
-        // Commit overlay sprites via the batcher's commitComp.
+        // Commit overlay sprites via the batcher's commitComp (web only).
         const spr = self._spriteRenderer;
-        console.log(`[SL] fillBuffers: spr=${!!spr} overlayRD=${!!spr?.overlayRenderData} overlayFrame=${!!spr?.overlayFrame} renderer=${!!renderer} hasCommit=${typeof renderer?.commitComp}`);
         if (spr?.overlayRenderData && spr.overlayFrame && renderer?.commitComp) {
-            console.log(`[SL] fillBuffers: calling commitComp for overlay vCount=${spr.overlayRenderData.vertexCount}`);
             renderer.commitComp(self, spr.overlayRenderData, spr.overlayFrame, spr.overlayAssembler, null);
-            console.log(`[SL] fillBuffers: commitComp done`);
         }
     },
 };
