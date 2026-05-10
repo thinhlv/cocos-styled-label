@@ -46,8 +46,6 @@ Tags can be nested:
 <sup><size=20>$</size></sup>2,000
 ```
 
-HTML entities `&lt;` `&gt;` `&amp;` `&quot;` `&apos;` are decoded automatically.
-
 ## Usage
 
 1. Copy `styled-label.ts` and `styled-label.layout.ts` into your project.
