@@ -369,9 +369,30 @@ export class StyledLabel extends UIRenderer {
             if (!this._offCanvas || !this._offCtx || !this._offTex || !this._offFrame) return;
         }
 
-        const diacriticPad = this.vAlign === VAlign.TOP
+        // Base text diacritic padding (only for TOP vAlign).
+        const textPad = this.vAlign === VAlign.TOP
             ? Math.max(0, Math.ceil(this.fontSize * 0.15) - this.marginTop)
             : 0;
+        // Extra canvas space needed so sprites whose height > fontAscent don't clip
+        // above the canvas. For each sprite on the first line: required gap =
+        // (sprH - lineAscent). Subtract vOffset since CENTER/BOTTOM alignment
+        // already shifts the line down by that amount.
+        let spritePad = 0;
+        if (cachedLayout && this._spriteAtlas) {
+            const firstLine = cachedLayout.lines[0];
+            if (firstLine) {
+                const maxSz = firstLine.words.reduce(
+                    (mx, ww) => Math.max(mx, (ww.style?.size ?? this.fontSize) * cachedLayout!.fontScale),
+                    this.fontSize * cachedLayout.fontScale,
+                );
+                const lAsc = this._fontAscent(maxSz);
+                for (const word of firstLine.words) {
+                    if (word.style?.spriteName) spritePad = Math.max(spritePad, word.h - lAsc);
+                }
+                spritePad = Math.max(0, spritePad - cachedLayout.vOffset);
+            }
+        }
+        const diacriticPad = Math.max(textPad, spritePad);
         const canvasH = h + diacriticPad;
 
         const sizeChanged = w !== this._prevW || canvasH !== this._prevH;
@@ -775,7 +796,7 @@ export class StyledLabel extends UIRenderer {
                 ctx.fillStyle = colorStr;
                 ctx.fillText(word.text, curX, drawY);
                 if (word.style?.underline)
-                    ctx.fillRect(curX, drawY + Math.max(1, size * 0.05), word.w, Math.max(1, size / 14));
+                    ctx.fillRect(curX, drawY + Math.max(1, size * 0.05), ctx.measureText(word.text.trimEnd()).width, Math.max(1, size / 14));
 
                 curX += word.w;
             }
