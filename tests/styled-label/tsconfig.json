@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "strict": false,
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "experimentalDecorators": true,
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "cc":     ["./src/__mocks__/cc.ts"],
+      "cc/env": ["./src/__mocks__/cc-env.ts"]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "../../assets/scripts/shared/cocos/components/styled-label/styled-label.layout.ts",
+    "../../assets/scripts/shared/cocos/components/styled-label/styled-label.ts"
+  ]
+}
