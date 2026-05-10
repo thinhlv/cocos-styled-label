@@ -42,7 +42,12 @@ export class Color {
 
 export class Font { name = 'mock'; uuid = 'font-uuid'; }
 export class BitmapFont extends Font {}
-export class SpriteAtlas {}
+export class SpriteAtlas {
+    private _frames: Map<string, SpriteFrame> = new Map();
+    addFrame(name: string, frame: SpriteFrame): void { this._frames.set(name, frame); }
+    getSpriteFrame(name: string): SpriteFrame | null { return this._frames.get(name) ?? null; }
+    uuid = 'atlas-mock-uuid';
+}
 
 export class Node {
     static EventType = { SIZE_CHANGED: 'size-changed' };

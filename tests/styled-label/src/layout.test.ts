@@ -2,6 +2,7 @@ import {
     buildLayout, wordBaselineY,
     HAlign, VAlign, OverflowMode, TextTransform,
     ILayoutParams, ITextSegment, ITextStyle,
+    HtmlTextParser,
 } from '../../../assets/styled-label/styled-label.layout';
 
 // Each char = 10px wide, line height = 20px at scale=1.
@@ -515,5 +516,87 @@ describe('buildLayout — lineSpacing', () => {
         }));
         // With extra spacing, fewer lines fit.
         expect(withSpacing.lines.length).toBeLessThanOrEqual(noSpacing.lines.length);
+    });
+});
+
+// ── [BUG] space after <sprite> tag ───────────────────────────────────────────
+//
+// Root cause (buildLayout, tokenization step):
+//   When a text segment starts with ' ' (e.g. ' hello' after a sprite tag),
+//   the code tries to transfer that leading space to the *previous token*.
+//   For sprite tokens the condition `prev.text && !prev.style?.isNewLine` is
+//   TRUE (sprite text is '￼', not a newline), so the space is appended there.
+//   But the layout loop for sprites (line ~291) always pushes `text:'￼'` and
+//   ignores token.text entirely → the space is silently discarded and the
+//   following word renders flush against the sprite.
+//
+// Fix: in the backward scan, bail out when a sprite token is encountered so
+//   the space is NOT transferred, and only strip the leading space from
+//   words[0] when the transfer actually succeeded.
+
+describe('[BUG] space after <sprite> tag — text must not touch sprite', () => {
+    const parser = new HtmlTextParser();
+
+    // getSprite that knows both 'icon' and '0'
+    const getSpr = (name: string) =>
+        (name === 'icon' || name === '0') ? { width: 32, height: 32 } : null;
+
+    function layoutOf(html: string) {
+        const segments = parser.parse(html);
+        return buildLayout(makeParams({ segments, getSprite: getSpr }));
+    }
+
+    // sprite '0' / 'icon': 32×32, fontSize=20, fontScale=1 → sprH=20, sprW=20
+    // space measured by mock: 1 char × 10 = 10
+    // 'hello': 5 chars × 10 = 50
+
+    test('<sprite=0> hello — text word starts with space (space preserved)', () => {
+        const result = layoutOf('<sprite=0> hello');
+        const words = result.lines.flatMap(l => l.words);
+        const textWord = words.find(w => !w.style?.spriteName);
+        // Space must be preserved as a leading space on the text word.
+        expect(textWord?.text).toMatch(/^ /);
+    });
+
+    test('<sprite=0> hello — line width includes space between sprite and text', () => {
+        const result = layoutOf('<sprite=0> hello');
+        // sprW=20, space=10, helloW=50 → total=80
+        // Without fix: sprW=20 + helloW=50 = 70 (space missing)
+        expect(result.lines[0].lineW).toBeGreaterThan(70);
+    });
+
+    test('multiple spaces after sprite are all preserved', () => {
+        const result = layoutOf('<sprite=0>   hi');
+        const words = result.lines.flatMap(l => l.words);
+        const textWord = words.find(w => !w.style?.spriteName);
+        // All leading spaces must stay, not be collapsed to one.
+        expect(textWord?.text.match(/^ +/)![0].length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('text before sprite still transfers its trailing space normally', () => {
+        // 'hi <sprite=0>': space after 'hi' should stay as trailing on 'hi' token.
+        // After merge, word text should end with space.
+        const result = layoutOf('hi <sprite=icon>');
+        const words = result.lines.flatMap(l => l.words);
+        const textWord = words.find(w => !w.style?.spriteName);
+        // 'hi ' = 3 chars × 10 = 30; sprite = 20 → total line = 50
+        expect(result.lines[0].lineW).toBeCloseTo(50, 0);
+        expect(textWord?.w).toBeCloseTo(30, 0);
+    });
+
+    test('text + sprite + space + text — space between sprite and second text is preserved', () => {
+        // 'hi <sprite=icon> bye': 'hi '=30, sprite=20, ' bye'=40 → total=90
+        const result = layoutOf('hi <sprite=icon> bye');
+        expect(result.lines[0].lineW).toBeGreaterThan(70); // must exceed hi+sprite alone
+    });
+
+    test('no space after sprite — text still renders immediately after', () => {
+        // '<sprite=0>hello' → no leading space on 'hello'
+        const result = layoutOf('<sprite=0>hello');
+        const words = result.lines.flatMap(l => l.words);
+        const textWord = words.find(w => !w.style?.spriteName);
+        expect(textWord?.text).not.toMatch(/^ /);
+        // sprW=20 + helloW=50 = 70
+        expect(result.lines[0].lineW).toBeCloseTo(70, 0);
     });
 });

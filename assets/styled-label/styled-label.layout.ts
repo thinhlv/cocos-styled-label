@@ -262,11 +262,13 @@ export function buildLayout(p: ILayoutParams): ILayoutResult {
             continue;
         }
         if (words[0].charAt(0) === ' ') {
+            let transferred = false;
             for (let i = tokens.length - 1; i >= 0; i--) {
                 const prev = tokens[i];
-                if (prev.text && !prev.style?.isNewLine) { prev.text = prev.text.replace(/\s+$/, '') + ' '; break; }
+                if (prev.style?.spriteName) break; // sprites ignore token.text; space cannot be absorbed
+                if (prev.text && !prev.style?.isNewLine) { prev.text = prev.text.replace(/\s+$/, '') + ' '; transferred = true; break; }
             }
-            words[0] = words[0].replace(/^\s+/, '');
+            if (transferred) words[0] = words[0].replace(/^\s+/, '');
         }
         for (const word of words) { if (word) tokens.push({ text: applyTransform(word, textTransform), style: seg.style }); }
     }
