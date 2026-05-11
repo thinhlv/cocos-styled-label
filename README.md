@@ -2,6 +2,8 @@
 
 A Cocos Creator 3.x component that renders styled text on a single canvas — like `Label`, but with HTML-like markup and inline sprites.
 
+![StyledLabel screenshot](screenshot.jpg)
+
 **Why not `RichText`?** `RichText` creates one `Label` node per segment, which is expensive. `StyledLabel` draws everything onto one off-screen canvas (TTF/system fonts) or emits GPU quads directly (BitmapFont), making it significantly cheaper for frequently-updated text.
 
 ## Files
