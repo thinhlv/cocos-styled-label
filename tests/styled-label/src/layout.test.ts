@@ -135,7 +135,7 @@ describe('buildLayout — vAlign', () => {
             vAlign: VAlign.CENTER,
             canvasH: 100,
         }));
-        // alignH = lastLineTextH = max(style?.size ?? fontSize) * fontScale = 20.
+        // alignH = lastLineTextH = fontSize * fontScale = 20, areaH = 100.
         // vOffset = (100 - 20) / 2 = 40.
         expect(result.vOffset).toBe(40);
     });
@@ -146,7 +146,7 @@ describe('buildLayout — vAlign', () => {
             vAlign: VAlign.BOTTOM,
             canvasH: 100,
         }));
-        // vOffset = 100 - 20 = 80.
+        // alignH = 20, vOffset = 100 - 20 = 80.
         expect(result.vOffset).toBe(80);
     });
 
@@ -161,6 +161,51 @@ describe('buildLayout — vAlign', () => {
         }));
         // vOffset = (80 - 20) / 2 = 30.
         expect(result.vOffset).toBe(30);
+    });
+});
+
+// ── vAlign text-visual invariant (lineH > fontSize) ──────────────────────────
+//
+// Invariant: vAlign positions by TEXT height (fontSize), not by line-box height.
+//   TOP:    vOffset = 0
+//   CENTER: vOffset + fontSize/2 = areaH/2   (text visual center = container center)
+//   BOTTOM: vOffset + fontSize   = areaH     (text bottom = container bottom)
+
+describe('buildLayout — vAlign text-visual invariant (lineH > fontSize)', () => {
+    // lineH=30 per line, fontSize=20 (makeParams default).
+    const measureTall = (_text: string, _style: ITextStyle | undefined, scale: number) => ({
+        w: 10 * scale,
+        h: 30 * scale,
+    });
+
+    function tall(overrides: Partial<ILayoutParams> = {}): ILayoutParams {
+        return makeParams({ segments: [seg('hello')], measure: measureTall, canvasH: 100, ...overrides });
+    }
+
+    test('TOP: vOffset = 0', () => {
+        expect(buildLayout(tall({ vAlign: VAlign.TOP })).vOffset).toBe(0);
+    });
+
+    test('CENTER: text-center = areaH/2  →  vOffset + fontSize/2 = 50', () => {
+        // fontSize=20, areaH=100 → vOffset=40, center = 40 + 10 = 50
+        expect(buildLayout(tall({ vAlign: VAlign.CENTER })).vOffset + 20 / 2).toBe(50);
+    });
+
+    test('BOTTOM: text-bottom = areaH  →  vOffset + fontSize = 100', () => {
+        // fontSize=20, areaH=100 → vOffset=80, bottom = 80 + 20 = 100
+        expect(buildLayout(tall({ vAlign: VAlign.BOTTOM })).vOffset + 20).toBe(100);
+    });
+
+    test('CENTER small font (fontSize=5) in large lineH (40): text still centered', () => {
+        // Repro: fontSize=5, lineH=40, areaH=100
+        // alignH = 40 - 40 + 5 = 5 → vOffset = (100-5)/2 = 47.5
+        // text center = 47.5 + 2.5 = 50 = areaH/2 ✓
+        const measureLH = (_t: string, _s: ITextStyle | undefined, s: number) => ({ w: 5 * s, h: 40 * s });
+        const r = buildLayout(makeParams({
+            segments: [seg('o')], measure: measureLH,
+            fontSize: 5, canvasH: 100, vAlign: VAlign.CENTER,
+        }));
+        expect(r.vOffset + 5 / 2).toBe(50);
     });
 });
 
