@@ -1,6 +1,6 @@
 import {
     _decorator, UIRenderer, SpriteFrame, SpriteAtlas, Texture2D, Font, BitmapFont,
-    Color, Rect, Enum, RenderData, BitMask, Node,
+    Color, Rect, Enum, RenderData, BitMask, Node, view,
 } from 'cc';
 import { EDITOR } from 'cc/env';
 import {
@@ -188,6 +188,7 @@ export class StyledLabel extends UIRenderer {
 
     private _contentDirty  = true;
     private _adjustingSize = false;
+    private _resizeHooked  = false;
     private _editorW = 0;
     private _editorH = 0;
 
@@ -246,11 +247,22 @@ export class StyledLabel extends UIRenderer {
             this._offFrame = null;
             this._spriteRenderer = null;
         }
+        if (!this._resizeHooked) {
+            view.on('resize', this._onScreenResize, this);
+            this._resizeHooked = true;
+        }
         super.onEnable?.();
         this._contentDirty = true;
         this._prevW = 0;
         this._prevH = 0;
         this.markForUpdateRenderData(true);
+    }
+
+    onDisable(): void {
+        if (this._resizeHooked) {
+            view.off('resize', this._onScreenResize, this);
+            this._resizeHooked = false;
+        }
     }
 
     onDestroy(): void {
@@ -268,6 +280,20 @@ export class StyledLabel extends UIRenderer {
     private _onNodeSizeChanged(): void {
         if (this._adjustingSize) return;
         this._contentDirty = true;
+        this.markForUpdateRenderData(true);
+    }
+
+    private _onScreenResize(): void {
+        if (!(this.font instanceof BitmapFont)) {
+            if (this._offTex) { this._offTex.destroy(); this._offTex = null; }
+            this._offCanvas = null;
+            this._offCtx = null;
+            this._offFrame = null;
+            this._spriteRenderer = null;
+        }
+        this._contentDirty = true;
+        this._prevW = 0;
+        this._prevH = 0;
         this.markForUpdateRenderData(true);
     }
 
@@ -403,7 +429,17 @@ export class StyledLabel extends UIRenderer {
             this._prevH = canvasH;
             this._offCanvas.width = w;
             this._offCanvas.height = canvasH;
+            // Destroy and create a new Texture2D instead of reset() on the same object.
+            // Cocos batcher caches DescriptorSets by Texture2D object identity — calling
+            // reset() swaps the internal GFX texture but the batcher keeps the old
+            // DescriptorSet (bound to the now-destroyed GFX texture) → black quad.
+            // A new object forces the batcher to build a fresh DescriptorSet.
+            this._offTex.destroy();
+            this._offTex = new Texture2D();
             this._offTex.reset({ width: w, height: canvasH, format: Texture2D.PixelFormat.RGBA8888 });
+            this._offFrame = new SpriteFrame();
+            this._offFrame.packable = false;
+            this._offFrame.texture = this._offTex;
             this._offFrame.rect = new Rect(0, 0, w, canvasH);
             _localVertUpdate(this, diacriticPad);
             const rd = this._renderData as RenderData;
@@ -411,7 +447,9 @@ export class StyledLabel extends UIRenderer {
             cachedLayout = null;
         }
 
-        if (!this._offTex.getGFXTexture()) { this.markForUpdateRenderData(true); return; }
+        if (!this._offTex.getGFXTexture()) {
+            this.markForUpdateRenderData(true); return;
+        }
 
         if (needDraw) {
             this._offCtx.clearRect(0, 0, w, canvasH);
@@ -796,7 +834,7 @@ export class StyledLabel extends UIRenderer {
                 ctx.fillStyle = colorStr;
                 ctx.fillText(word.text, curX, drawY);
                 if (word.style?.underline)
-                    ctx.fillRect(curX, drawY + Math.max(1, size * 0.05), ctx.measureText(word.text.trimEnd()).width, Math.max(1, size / 14));
+                    ctx.fillRect(curX, drawY + Math.max(1, size * 0.05), ctx.measureText(word.text.replace(/\s+$/, '')).width, Math.max(1, size / 14));
 
                 curX += word.w;
             }
