@@ -1,6 +1,6 @@
 import {
     _decorator, UIRenderer, SpriteFrame, SpriteAtlas, Texture2D, Font, BitmapFont,
-    Color, Rect, Enum, RenderData, BitMask, Node,
+    Color, Rect, Enum, RenderData, BitMask, Node, view,
 } from 'cc';
 import { EDITOR } from 'cc/env';
 import {
@@ -188,6 +188,7 @@ export class StyledLabel extends UIRenderer {
 
     private _contentDirty  = true;
     private _adjustingSize = false;
+    private _resizeHooked  = false;
     private _editorW = 0;
     private _editorH = 0;
 
@@ -246,11 +247,24 @@ export class StyledLabel extends UIRenderer {
             this._offFrame = null;
             this._spriteRenderer = null;
         }
+        if (!this._resizeHooked) {
+            view.on('resize', this._onScreenResize, this);
+            this._resizeHooked = true;
+            console.log('[StyledLabel] onEnable: resize hook registered');
+        }
         super.onEnable?.();
         this._contentDirty = true;
         this._prevW = 0;
         this._prevH = 0;
         this.markForUpdateRenderData(true);
+    }
+
+    onDisable(): void {
+        if (this._resizeHooked) {
+            view.off('resize', this._onScreenResize, this);
+            this._resizeHooked = false;
+            console.log('[StyledLabel] onDisable: resize hook removed');
+        }
     }
 
     onDestroy(): void {
@@ -267,8 +281,27 @@ export class StyledLabel extends UIRenderer {
 
     private _onNodeSizeChanged(): void {
         if (this._adjustingSize) return;
+        const tf = (this.node as any)._getUITransformComp?.();
+        console.log('[StyledLabel] _onNodeSizeChanged:', tf?.width, 'x', tf?.height);
         this._contentDirty = true;
         this.markForUpdateRenderData(true);
+    }
+
+    private _onScreenResize(): void {
+        console.log('[StyledLabel] _onScreenResize fired, isBM=', this.font instanceof BitmapFont,
+            'hooked=', this._resizeHooked, 'offTex=', !!this._offTex);
+        if (!(this.font instanceof BitmapFont)) {
+            if (this._offTex) { this._offTex.destroy(); this._offTex = null; }
+            this._offCanvas = null;
+            this._offCtx = null;
+            this._offFrame = null;
+            this._spriteRenderer = null;
+        }
+        this._contentDirty = true;
+        this._prevW = 0;
+        this._prevH = 0;
+        this.markForUpdateRenderData(true);
+        console.log('[StyledLabel] _onScreenResize: markForUpdateRenderData done');
     }
 
     update(_dt: number): void {
@@ -329,18 +362,21 @@ export class StyledLabel extends UIRenderer {
     }
 
     protected _canRender(): boolean {
-        if (!super._canRender()) return false;
+        if (!super._canRender()) { console.log('[StyledLabel] _canRender: super=false'); return false; }
         if (this.font instanceof BitmapFont) {
             return !!(this._bmSpriteFrame?.texture?.getGFXTexture()) && this._bmQuads.length > 0;
         }
-        return !!(this._offFrame?.texture?.getGFXTexture());
+        const ok = !!(this._offFrame?.texture?.getGFXTexture());
+        if (!ok) console.log('[StyledLabel] _canRender: false, offFrame=', !!this._offFrame,
+            'tex=', !!this._offFrame?.texture, 'gfx=', !!this._offFrame?.texture?.getGFXTexture());
+        return ok;
     }
 
 
 
     public _doUpdate(force?: boolean): void {
         const tf = (this.node as any)._getUITransformComp();
-        if (!tf) return;
+        if (!tf) { console.log('[StyledLabel] _doUpdate: no UITransform, skip'); return; }
 
         let w = Math.ceil(tf.width) || 1;
         let h = Math.ceil(tf.height) || 1;
@@ -397,13 +433,28 @@ export class StyledLabel extends UIRenderer {
 
         const sizeChanged = w !== this._prevW || canvasH !== this._prevH;
         const needDraw = this._contentDirty || sizeChanged || !!force;
+        console.log('[StyledLabel] _doUpdate: w=', w, 'h=', canvasH, 'prevW=', this._prevW, 'prevH=', this._prevH,
+            'sizeChanged=', sizeChanged, 'contentDirty=', this._contentDirty, 'needDraw=', needDraw,
+            'gfxTex=', !!this._offTex?.getGFXTexture());
 
         if (sizeChanged || !this._offTex.getGFXTexture()) {
             this._prevW = w;
             this._prevH = canvasH;
             this._offCanvas.width = w;
             this._offCanvas.height = canvasH;
+            // Destroy and create a new Texture2D instead of reset() on the same object.
+            // Cocos batcher caches DescriptorSets by Texture2D object identity — calling
+            // reset() swaps the internal GFX texture but the batcher keeps the old
+            // DescriptorSet (bound to the now-destroyed GFX texture) → black quad.
+            // A new object forces the batcher to build a fresh DescriptorSet.
+            this._offTex.destroy();
+            this._offTex = new Texture2D();
             this._offTex.reset({ width: w, height: canvasH, format: Texture2D.PixelFormat.RGBA8888 });
+            console.log('[StyledLabel] _doUpdate: after recreate gfxTex=', !!this._offTex.getGFXTexture(),
+                'canvas=', this._offCanvas.width, 'x', this._offCanvas.height);
+            this._offFrame = new SpriteFrame();
+            this._offFrame.packable = false;
+            this._offFrame.texture = this._offTex;
             this._offFrame.rect = new Rect(0, 0, w, canvasH);
             _localVertUpdate(this, diacriticPad);
             const rd = this._renderData as RenderData;
@@ -411,17 +462,35 @@ export class StyledLabel extends UIRenderer {
             cachedLayout = null;
         }
 
-        if (!this._offTex.getGFXTexture()) { this.markForUpdateRenderData(true); return; }
+        if (!this._offTex.getGFXTexture()) {
+            console.log('[StyledLabel] _doUpdate: gfxTex null after reset — retry');
+            this.markForUpdateRenderData(true); return;
+        }
 
         if (needDraw) {
             this._offCtx.clearRect(0, 0, w, canvasH);
             this._spriteRenderer?.beginFrame(tf.anchorX, tf.anchorY, w, canvasH);
             if (this._htmlString) this._drawContent(w, h, diacriticPad, cachedLayout);
+            // Sample pixel at vertical midpoint to confirm canvas has content.
+            if (typeof this._offCtx.getImageData === 'function') {
+                const py = Math.min(Math.floor(canvasH * 0.5), canvasH - 1);
+                const px = this._offCtx.getImageData(w >> 1, py, 1, 1).data;
+                console.log(`[StyledLabel] canvas pixel @(${w>>1},${py}):`, px[0], px[1], px[2], px[3]);
+            }
             this._offTex.uploadData(this._offCanvas);
             _uvUpdate(this);
             _colorUpdate(this);
             this._spriteRenderer?.endFrame();
             this._contentDirty = false;
+            // Log local vertex positions and UV values used by the quad.
+            const rdChk = this._renderData as RenderData;
+            if (rdChk) {
+                const d = rdChk.data;
+                console.log('[StyledLabel] vertices (local): BL', d[0].x, d[0].y, '  BR', d[1].x, d[1].y,
+                    '  TL', d[2].x, d[2].y, '  TR', d[3].x, d[3].y);
+            }
+            const uv = this._offFrame?.uv;
+            if (uv) console.log('[StyledLabel] SpriteFrame.uv:', Array.from(uv).map(v => v.toFixed(3)).join(' '));
         }
 
         const rd = this._renderData as RenderData;
@@ -429,6 +498,7 @@ export class StyledLabel extends UIRenderer {
     }
 
     updateRenderData(force?: boolean): void {
+        console.log('[StyledLabel] updateRenderData force=', force, 'contentDirty=', this._contentDirty);
         if (force) this._contentDirty = true;
         this._doUpdate(force);
     }
@@ -796,7 +866,7 @@ export class StyledLabel extends UIRenderer {
                 ctx.fillStyle = colorStr;
                 ctx.fillText(word.text, curX, drawY);
                 if (word.style?.underline)
-                    ctx.fillRect(curX, drawY + Math.max(1, size * 0.05), ctx.measureText(word.text.trimEnd()).width, Math.max(1, size / 14));
+                    ctx.fillRect(curX, drawY + Math.max(1, size * 0.05), ctx.measureText(word.text.replace(/\s+$/, '')).width, Math.max(1, size / 14));
 
                 curX += word.w;
             }

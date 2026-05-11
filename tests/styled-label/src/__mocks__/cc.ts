@@ -93,3 +93,8 @@ export const _decorator = {
 
 export const Enum    = (v: any) => v;
 export const BitMask = (v: any) => v;
+
+export const view = {
+    on(_event: string, _cb: () => void, _target?: any) {},
+    off(_event: string, _cb: () => void, _target?: any) {},
+};
