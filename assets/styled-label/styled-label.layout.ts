@@ -378,6 +378,8 @@ export function buildLayout(p: ILayoutParams): ILayoutResult {
     }
 
     // 5. Vertical alignment offset
+    // alignH = height from top of first line-box to bottom of *text* in last line,
+    // so CENTER/BOTTOM align by text visual height rather than the full line box.
     const clampedTotalH = lines.length > 0
         ? lines.reduce((s, l) => s + l.lineH + lineSpacing, 0) - lineSpacing
         : 0;

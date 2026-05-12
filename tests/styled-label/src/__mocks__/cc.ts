@@ -12,7 +12,10 @@ export class RenderData {
         vb: new Float32Array(4 * 9),
         setIndexBuffer(_buf: any) {},
     };
-    resize(_v: number, _i: number) {}
+    resize(vCount: number, _iCount: number) {
+        while (this.data.length < vCount) this.data.push({ x: 0, y: 0 });
+        this.vertexCount = vCount;
+    }
     updateRenderData(_comp: any, _sf: any) {}
 }
 

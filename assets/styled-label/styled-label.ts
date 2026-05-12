@@ -593,7 +593,7 @@ export class StyledLabel extends UIRenderer {
         ctx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
         ctx.textBaseline = 'alphabetic';
         const m = ctx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
-        const v = (m as any).fontBoundingBoxAscent ?? m.actualBoundingBoxAscent ?? size * 0.8;
+        const v = m.actualBoundingBoxAscent ?? (m as any).fontBoundingBoxAscent ?? size * 0.8;
         if (StyledLabel._measureCache.size >= StyledLabel._MEASURE_CACHE_MAX)
             StyledLabel._measureCache.delete(StyledLabel._measureCache.keys().next().value!);
         StyledLabel._measureCache.set(key, v);
@@ -727,14 +727,40 @@ export class StyledLabel extends UIRenderer {
         const nativeSize = cfg.commonHeight || cfg.fontSize || this.fontSize;
         const nativeBase = cfg.base ?? nativeSize;
 
-        const { lines, vOffset, maxW, fontScale } = layout ?? this._buildLayout(canvasW, canvasH);
+        const { lines, maxW, fontScale } = layout ?? this._buildLayout(canvasW, canvasH);
         const quads: IBMQuadInfo[] = [];
         const ml = this.marginLeft, mt = this.marginTop;
-        let lineY = mt + vOffset;
+
+        // Compute visual bounding box of all glyphs at native scale.
+        // vOffset from buildLayout() assumes visual height = fontSize, which is wrong for
+        // BitmapFont where glyph height can differ significantly from lineHeight.
+        let nativeVisTop = Infinity, nativeVisBtm = -Infinity;
+        for (const code in cfg.fontDefDictionary) {
+            const g = cfg.fontDefDictionary[+code] as IBMGlyph;
+            if (g.rect.height === 0) continue;
+            if (g.yOffset < nativeVisTop) nativeVisTop = g.yOffset;
+            const b = g.yOffset + g.rect.height;
+            if (b > nativeVisBtm) nativeVisBtm = b;
+        }
+        if (!isFinite(nativeVisTop)) { nativeVisTop = 0; nativeVisBtm = nativeSize; }
+        const defaultScale = this.fontSize * fontScale / (nativeSize || 1);
+        const visTop = nativeVisTop * defaultScale;
+        const visBtm = nativeVisBtm * defaultScale;
+        const areaH = canvasH - mt - this.marginBottom;
+        // leadingLogH: total line-box height of all lines except the last (incl. spacing).
+        const leadingLogH = lines.slice(0, -1).reduce((s, l) => s + l.lineH + this.lineSpacing, 0);
+        let lineY: number;
+        if (this.vAlign === VAlign.TOP) {
+            lineY = mt - visTop;
+        } else if (this.vAlign === VAlign.BOTTOM) {
+            lineY = mt + areaH - leadingLogH - visBtm;
+        } else {
+            lineY = mt + (areaH - visTop - leadingLogH - visBtm) / 2;
+        }
 
         for (let li = 0; li < lines.length; li++) {
             const line = lines[li];
-            let lineMaxScale = fontScale;
+            let lineMaxScale = 0;
             for (let i = 0; i < line.words.length; i++) {
                 const ws = ((line.words[i].style?.size ?? this.fontSize) * fontScale) / (nativeSize || 1);
                 if (ws > lineMaxScale) lineMaxScale = ws;
