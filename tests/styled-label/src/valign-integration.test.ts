@@ -1,15 +1,17 @@
 // Integration tests for vAlign pixel position.
 //
 // Strategy: intercept ctx.fillText to capture the actual drawY, then measure:
-//   topGap    = drawY - fontAscent    (canvas top → glyph top)
-//   bottomGap = canvasH - drawY - fontDescent  (glyph bottom → canvas bottom)
+//   topGap    = drawY - actualBoundingBoxAscent    (canvas top → actual glyph top)
+//   bottomGap = canvasH - drawY - actualDescent    (actual glyph bottom → canvas bottom)
 //
 // For CENTER these must be equal; for TOP topGap≈0; for BOTTOM bottomGap≈0.
 // Tests are independent of any formula — they only check pixel geometry.
 //
-// Repro: fontSize=5, lineHeight=40, nodeH=60, VAlign.CENTER
-//   Bug (wrong formula):  drawY≈14 → topGap=10,   bottomGap=45  (wildly off)
-//   Fix (correct formula): drawY≈31.5 → topGap=27.5, bottomGap=27.5 (equal ✓)
+// Mock simulates a TTF font with fontBoundingBoxAscent >> actualBoundingBoxAscent
+// (like OpenSans-Bold), which exposed the bug where the wrong ascent value was used.
+//
+// Bug: _fontAscent() returned fontBoundingBoxAscent (1.07x) instead of
+//      actualBoundingBoxAscent (0.73x), shifting all text ~0.34×fontSize downward.
 
 // ── Canvas mock ───────────────────────────────────────────────────────────────
 
@@ -24,7 +26,14 @@ const mockCtxV = {
     measureText(_t: string) {
         const m = mockCtxV.font.match(/(\d+(?:\.\d+)?)px/);
         const fs = m ? parseFloat(m[1]) : 16;
-        return { width: 10, fontBoundingBoxAscent: fs * 0.8, actualBoundingBoxAscent: fs * 0.8 };
+        // Simulate a TTF font: declared ascent (fontBoundingBoxAscent) is larger than
+        // actual rendered height (actualBoundingBoxAscent). This mirrors real fonts like
+        // OpenSans-Bold where fontBoundingBoxAscent ≈ 1.07× and actual ≈ 0.73× fontSize.
+        return {
+            width: 10,
+            fontBoundingBoxAscent: fs * 1.07,
+            actualBoundingBoxAscent: fs * 0.73,
+        };
     },
 };
 
@@ -71,28 +80,28 @@ function setupReproLabel(vAlign: VAlign): void {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('vAlign — pixel gap invariant (fontSize=5, lineH=40, nodeH=60)', () => {
-    // fontAscent = 0.8 * fontSize, fontDescent = 0.2 * fontSize (from mock)
+    // Actual rendered character bounds from mock (independent of which ascent the impl uses).
     const nodeH = 60;
     const fontSize = 5;
-    const fontAscent = fontSize * 0.8;   // 4
-    const fontDescent = fontSize * 0.2;  // 1
+    const actualAscent  = fontSize * 0.73;  // actual rendered height above baseline
+    const actualDescent = fontSize * 0.2;   // estimated descent below baseline
 
     test('CENTER: topGap ≈ bottomGap (text visually centered)', () => {
         setupReproLabel(VAlign.CENTER);
-        const topGap = capturedDrawY - fontAscent;
-        const bottomGap = nodeH - capturedDrawY - fontDescent;
+        const topGap    = capturedDrawY - actualAscent;
+        const bottomGap = nodeH - capturedDrawY - actualDescent;
         expect(Math.abs(topGap - bottomGap)).toBeLessThan(1);
     });
 
     test('TOP: topGap < 2 (text near canvas top, within textPad)', () => {
         setupReproLabel(VAlign.TOP);
-        const topGap = capturedDrawY - fontAscent;
+        const topGap = capturedDrawY - actualAscent;
         expect(topGap).toBeLessThan(2);
     });
 
     test('BOTTOM: bottomGap ≈ 0 (text near canvas bottom)', () => {
         setupReproLabel(VAlign.BOTTOM);
-        const bottomGap = nodeH - capturedDrawY - fontDescent;
+        const bottomGap = nodeH - capturedDrawY - actualDescent;
         expect(Math.abs(bottomGap)).toBeLessThan(1);
     });
 });

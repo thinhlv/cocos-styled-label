@@ -593,7 +593,7 @@ export class StyledLabel extends UIRenderer {
         ctx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
         ctx.textBaseline = 'alphabetic';
         const m = ctx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
-        const v = (m as any).fontBoundingBoxAscent ?? m.actualBoundingBoxAscent ?? size * 0.8;
+        const v = m.actualBoundingBoxAscent ?? (m as any).fontBoundingBoxAscent ?? size * 0.8;
         if (StyledLabel._measureCache.size >= StyledLabel._MEASURE_CACHE_MAX)
             StyledLabel._measureCache.delete(StyledLabel._measureCache.keys().next().value!);
         StyledLabel._measureCache.set(key, v);
