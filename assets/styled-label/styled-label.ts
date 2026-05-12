@@ -593,7 +593,10 @@ export class StyledLabel extends UIRenderer {
         ctx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
         ctx.textBaseline = 'alphabetic';
         const m = ctx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
-        const v = m.actualBoundingBoxAscent ?? (m as any).fontBoundingBoxAscent ?? size * 0.8;
+        const fba = (m as any).fontBoundingBoxAscent as number | undefined;
+        // Use fontBoundingBoxAscent when it is within the em-square (system fonts, fba ≤ size).
+        // Some TTF fonts declare fba > fontSize (inflated); fall back to actualBoundingBoxAscent.
+        const v = (fba !== undefined && fba <= size) ? fba : (m.actualBoundingBoxAscent ?? size * 0.8);
         if (StyledLabel._measureCache.size >= StyledLabel._MEASURE_CACHE_MAX)
             StyledLabel._measureCache.delete(StyledLabel._measureCache.keys().next().value!);
         StyledLabel._measureCache.set(key, v);
