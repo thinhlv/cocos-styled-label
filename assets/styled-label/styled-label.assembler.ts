@@ -171,7 +171,6 @@ const _bmAssembler = {
         const nodeAny = comp.node as any;
         if ((self as any)._flagChangedVersion !== nodeAny.flagChangedVersion || rd.vertDirty) {
             _bmWorldVertUpdate(self, chunk);
-            _bmApplyNodeColor(self);
             rd.vertDirty = false;
             (self as any)._flagChangedVersion = nodeAny.flagChangedVersion;
         }

@@ -732,10 +732,6 @@ export class StyledLabel extends UIRenderer {
                 vb[(base+3)*stride+3] = qi.u1; vb[(base+3)*stride+4] = qi.v0;
             }
             _bmApplyNodeColor(this);
-            if (this._bmQuads.length > 0) {
-                const dbgVb = (rd as any).chunk?.vb as Float32Array;
-                console.log(`[StyledLabel BM color] stride=${stride} q0=${dbgVb?.[5]?.toFixed(2)},${dbgVb?.[6]?.toFixed(2)},${dbgVb?.[7]?.toFixed(2)},${dbgVb?.[8]?.toFixed(2)}`);
-            }
             rd.vertDirty = true;
         }
         rd.updateRenderData(this, sf);
