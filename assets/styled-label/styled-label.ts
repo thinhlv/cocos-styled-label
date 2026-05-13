@@ -154,8 +154,8 @@ export class StyledLabel extends UIRenderer {
             this._offCanvas = null;
             this._offCtx = null;
             this._offFrame = null;
-            this._spriteRenderer = null;
         }
+        this._spriteRenderer = null;
         this._prevW = 0;
         this._prevH = 0;
         this._contentDirty = true;
@@ -349,6 +349,12 @@ export class StyledLabel extends UIRenderer {
     protected _render(render: any): void {
         if (this.font instanceof BitmapFont) {
             render.commitComp(this, this._renderData, this._bmSpriteFrame, this._assembler, null);
+            // Commit overlay sprites (inline sprites) — works in both editor scene view and web play mode.
+            // On native JSB (_render is bypassed), NativeSpriteRenderer.endFrame() registers overlay via rd.updateRenderData().
+            const spr = this._spriteRenderer;
+            if (spr?.overlayRenderData && spr.overlayFrame && spr.overlayAssembler) {
+                render.commitComp(this, spr.overlayRenderData, spr.overlayFrame, spr.overlayAssembler, null);
+            }
         } else {
             render.commitComp(this, this._renderData, this._offFrame, this._assembler, null);
             // Overlay sprites are committed inside _quadAssembler.fillBuffers via the renderer param.
