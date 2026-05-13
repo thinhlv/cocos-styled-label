@@ -847,7 +847,10 @@ export class StyledLabel extends UIRenderer {
 
                 if (word.style?.spriteName) {
                     const frame = this._spriteAtlas?.getSpriteFrame(word.style.spriteName);
-                    if (frame) this._spriteRenderer?.render(frame, curX, drawY - word.h, word.w, word.h);
+                    if (frame) {
+                        const offsetPx = (word.style.spriteOffsetY ?? 0) * word.h;
+                        this._spriteRenderer?.render(frame, curX, drawY - word.h - offsetPx, word.w, word.h);
+                    }
                     curX += word.w;
                     continue;
                 }
