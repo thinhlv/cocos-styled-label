@@ -154,8 +154,8 @@ export class StyledLabel extends UIRenderer {
             this._offCanvas = null;
             this._offCtx = null;
             this._offFrame = null;
-            this._spriteRenderer = null;
         }
+        this._spriteRenderer = null;
         this._prevW = 0;
         this._prevH = 0;
         this._contentDirty = true;
@@ -246,6 +246,8 @@ export class StyledLabel extends UIRenderer {
             this._offCtx = null;
             this._offFrame = null;
             this._spriteRenderer = null;
+        } else {
+            this._spriteRenderer?.reset();
         }
         if (!this._resizeHooked) {
             view.on('resize', this._onScreenResize, this);
@@ -347,6 +349,12 @@ export class StyledLabel extends UIRenderer {
     protected _render(render: any): void {
         if (this.font instanceof BitmapFont) {
             render.commitComp(this, this._renderData, this._bmSpriteFrame, this._assembler, null);
+            // Commit overlay sprites (inline sprites) — works in both editor scene view and web play mode.
+            // On native JSB (_render is bypassed), NativeSpriteRenderer.endFrame() registers overlay via rd.updateRenderData().
+            const spr = this._spriteRenderer;
+            if (spr?.overlayRenderData && spr.overlayFrame && spr.overlayAssembler) {
+                render.commitComp(this, spr.overlayRenderData, spr.overlayFrame, spr.overlayAssembler, null);
+            }
         } else {
             render.commitComp(this, this._renderData, this._offFrame, this._assembler, null);
             // Overlay sprites are committed inside _quadAssembler.fillBuffers via the renderer param.
@@ -593,7 +601,10 @@ export class StyledLabel extends UIRenderer {
         ctx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
         ctx.textBaseline = 'alphabetic';
         const m = ctx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
-        const v = m.actualBoundingBoxAscent ?? (m as any).fontBoundingBoxAscent ?? size * 0.8;
+        const fba = (m as any).fontBoundingBoxAscent as number | undefined;
+        // Use fontBoundingBoxAscent when it is within the em-square (system fonts, fba ≤ size).
+        // Some TTF fonts declare fba > fontSize (inflated); fall back to actualBoundingBoxAscent.
+        const v = (fba !== undefined && fba <= size) ? fba : (m.actualBoundingBoxAscent ?? size * 0.8);
         if (StyledLabel._measureCache.size >= StyledLabel._MEASURE_CACHE_MAX)
             StyledLabel._measureCache.delete(StyledLabel._measureCache.keys().next().value!);
         StyledLabel._measureCache.set(key, v);
@@ -666,7 +677,18 @@ export class StyledLabel extends UIRenderer {
         }
         this._prevW = w;
         this._prevH = h;
+        if (!this._spriteRenderer) {
+            this._spriteRenderer = new NativeSpriteRenderer(this, () => {
+                const saved = this._renderData;
+                const rd = this.requestRenderData() as RenderData;
+                (this as any)._renderData = saved;
+                return rd;
+            });
+        }
+        this._spriteRenderer.beginFrame(ax, ay, w, h);
         this._bmQuads = this._htmlString ? this._buildBMQuads(w, h, ax, ay, layout) : [];
+        this._spriteRenderer.endFrame();
+        console.log(`[StyledLabel BM] endFrame overlay=${this._spriteRenderer.overlayRenderData ? 'yes' : 'no'}`);
         this._contentDirty = false;
 
         const vCount = this._bmQuads.length * 4;
@@ -773,7 +795,25 @@ export class StyledLabel extends UIRenderer {
             let curX = startX;
             for (let i = 0; i < line.words.length; i++) {
                 const word = line.words[i];
-                if (word.style?.spriteName) { curX += word.w; continue; }
+                if (word.style?.spriteName) {
+                    const frame = this._spriteAtlas?.getSpriteFrame(word.style.spriteName);
+                    console.log(`[StyledLabel BM] sprite "${word.style.spriteName}" frame=${!!frame} renderer=${!!this._spriteRenderer}`);
+                    if (frame && this._spriteRenderer) {
+                        const wordScale = nativeSize > 0
+                            ? ((word.style?.size ?? this.fontSize) * fontScale) / nativeSize
+                            : 1;
+                        const drawY = wordBaselineY(
+                            lineY, line.lineH,
+                            nativeBase * wordScale,
+                            nativeBase * lineMaxScale,
+                            word.h, word.style.vAlign,
+                        );
+                        const offsetPx = (word.style.spriteOffsetY ?? 0) * word.h;
+                        this._spriteRenderer.render(frame, curX, drawY - word.h - offsetPx, word.w, word.h);
+                    }
+                    curX += word.w;
+                    continue;
+                }
 
                 const size = (word.style?.size ?? this.fontSize) * fontScale;
                 const scale = nativeSize > 0 ? size / nativeSize : 1;
@@ -795,7 +835,11 @@ export class StyledLabel extends UIRenderer {
                     const g = cfg.fontDefDictionary[word.text.charCodeAt(ci)] as IBMGlyph | undefined;
                     if (!g) { glyphX += size * 0.5; continue; }
                     const gCanvasX = glyphX + g.xOffset * scale;
-                    const gCanvasY = lineY + nativeBase * (lineMaxScale - scale) + g.yOffset * scale;
+                    let baselineOffset: number;
+                    if (word.style?.vAlign === 'top')         baselineOffset = 0;
+                    else if (word.style?.vAlign === 'bottom') baselineOffset = line.lineH - word.h / 2;
+                    else                                      baselineOffset = nativeBase * (lineMaxScale - scale);
+                    const gCanvasY = lineY + baselineOffset + g.yOffset * scale;
                     const gW = g.rect.width * scale, gH = g.rect.height * scale;
                     const xl = gCanvasX - anchorX * canvasW;
                     const xr = gCanvasX + gW - anchorX * canvasW;
@@ -844,7 +888,10 @@ export class StyledLabel extends UIRenderer {
 
                 if (word.style?.spriteName) {
                     const frame = this._spriteAtlas?.getSpriteFrame(word.style.spriteName);
-                    if (frame) this._spriteRenderer?.render(frame, curX, drawY - word.h, word.w, word.h);
+                    if (frame) {
+                        const offsetPx = (word.style.spriteOffsetY ?? 0) * word.h;
+                        this._spriteRenderer?.render(frame, curX, drawY - word.h - offsetPx, word.w, word.h);
+                    }
                     curX += word.w;
                     continue;
                 }

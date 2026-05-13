@@ -100,6 +100,42 @@ describe('HtmlTextParser', () => {
         expect(spriteSeg!.style!.spriteSize).toBeCloseTo(16.5);
     });
 
+    test('<sprite=name offsetY=0.5> sets spriteOffsetY', () => {
+        const result = parser.parse('<sprite=icon offsetY=0.5>');
+        const spriteSeg = result.find(s => s.style?.spriteName);
+        expect(spriteSeg!.style!.spriteName).toBe('icon');
+        expect(spriteSeg!.style!.spriteOffsetY).toBeCloseTo(0.5);
+        expect(spriteSeg!.style!.spriteSize).toBeUndefined();
+    });
+
+    test('<sprite=name offsetY=-0.3> accepts negative offsetY', () => {
+        const result = parser.parse('<sprite=icon offsetY=-0.3>');
+        const spriteSeg = result.find(s => s.style?.spriteName);
+        expect(spriteSeg!.style!.spriteOffsetY).toBeCloseTo(-0.3);
+    });
+
+    test('<sprite=name size=32 offsetY=-0.3> sets both spriteSize and spriteOffsetY', () => {
+        const result = parser.parse('<sprite=coin size=32 offsetY=-0.3>');
+        const spriteSeg = result.find(s => s.style?.spriteName);
+        expect(spriteSeg!.style!.spriteName).toBe('coin');
+        expect(spriteSeg!.style!.spriteSize).toBe(32);
+        expect(spriteSeg!.style!.spriteOffsetY).toBeCloseTo(-0.3);
+    });
+
+    test('<sprite=name offsetY=-0.25 size=32> params in any order', () => {
+        const result = parser.parse('<sprite=coin offsetY=-0.25 size=32>');
+        const spriteSeg = result.find(s => s.style?.spriteName);
+        expect(spriteSeg!.style!.spriteName).toBe('coin');
+        expect(spriteSeg!.style!.spriteSize).toBe(32);
+        expect(spriteSeg!.style!.spriteOffsetY).toBeCloseTo(-0.25);
+    });
+
+    test('<sprite=name> without offsetY leaves spriteOffsetY undefined', () => {
+        const result = parser.parse('<sprite=icon>');
+        const spriteSeg = result.find(s => s.style?.spriteName);
+        expect(spriteSeg!.style!.spriteOffsetY).toBeUndefined();
+    });
+
     // ── nested / inherited styles ────────────────────────────────────────────
 
     test('nested tags: inner inherits outer style', () => {

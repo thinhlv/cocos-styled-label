@@ -20,6 +20,8 @@ export interface ITextStyle {
     event?: Record<string, string>;
     spriteName?: string;
     spriteSize?: number;
+    /** Vertical offset as a fraction of sprite display height; >0 = up, <0 = down. */
+    spriteOffsetY?: number;
     /** Vertical alignment of this word within the line box. */
     vAlign?: 'top' | 'bottom' | 'baseline';
 }
@@ -137,9 +139,13 @@ export class HtmlTextParser {
         h = /^sprite\s*=\s*/.exec(attr);
         if (h) {
             const rest = attr.substring(h[0].length).trim();
-            const sizeMatch = /\s+size\s*=\s*(\d+(\.\d+)?)\s*$/.exec(rest);
-            obj.spriteName = sizeMatch ? rest.substring(0, sizeMatch.index).trim() : rest;
+            const spaceIdx = rest.search(/\s/);
+            obj.spriteName = spaceIdx === -1 ? rest : rest.substring(0, spaceIdx);
+            const params = spaceIdx === -1 ? '' : rest.substring(spaceIdx);
+            const sizeMatch = /\bsize\s*=\s*(\d+(?:\.\d+)?)\b/.exec(params);
             if (sizeMatch) obj.spriteSize = parseFloat(sizeMatch[1]);
+            const offsetMatch = /\boffsetY\s*=\s*(-?\d+(?:\.\d+)?)\b/.exec(params);
+            if (offsetMatch) obj.spriteOffsetY = parseFloat(offsetMatch[1]);
             this._result.push({ text: '￼', style: obj });
             return obj;
         }
