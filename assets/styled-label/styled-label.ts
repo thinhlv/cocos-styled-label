@@ -732,6 +732,10 @@ export class StyledLabel extends UIRenderer {
                 vb[(base+3)*stride+3] = qi.u1; vb[(base+3)*stride+4] = qi.v0;
             }
             _bmApplyNodeColor(this);
+            if (this._bmQuads.length > 0) {
+                const dbgVb = (rd as any).chunk?.vb as Float32Array;
+                console.log(`[StyledLabel BM color] stride=${stride} q0=${dbgVb?.[5]?.toFixed(2)},${dbgVb?.[6]?.toFixed(2)},${dbgVb?.[7]?.toFixed(2)},${dbgVb?.[8]?.toFixed(2)}`);
+            }
             rd.vertDirty = true;
         }
         rd.updateRenderData(this, sf);
@@ -835,7 +839,11 @@ export class StyledLabel extends UIRenderer {
                     const g = cfg.fontDefDictionary[word.text.charCodeAt(ci)] as IBMGlyph | undefined;
                     if (!g) { glyphX += size * 0.5; continue; }
                     const gCanvasX = glyphX + g.xOffset * scale;
-                    const gCanvasY = lineY + nativeBase * (lineMaxScale - scale) + g.yOffset * scale;
+                    let baselineOffset: number;
+                    if (word.style?.vAlign === 'top')         baselineOffset = 0;
+                    else if (word.style?.vAlign === 'bottom') baselineOffset = line.lineH - word.h / 2;
+                    else                                      baselineOffset = nativeBase * (lineMaxScale - scale);
+                    const gCanvasY = lineY + baselineOffset + g.yOffset * scale;
                     const gW = g.rect.width * scale, gH = g.rect.height * scale;
                     const xl = gCanvasX - anchorX * canvasW;
                     const xr = gCanvasX + gW - anchorX * canvasW;
