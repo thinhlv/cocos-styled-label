@@ -246,6 +246,8 @@ export class StyledLabel extends UIRenderer {
             this._offCtx = null;
             this._offFrame = null;
             this._spriteRenderer = null;
+        } else {
+            this._spriteRenderer?.reset();
         }
         if (!this._resizeHooked) {
             view.on('resize', this._onScreenResize, this);
@@ -669,7 +671,18 @@ export class StyledLabel extends UIRenderer {
         }
         this._prevW = w;
         this._prevH = h;
+        if (!this._spriteRenderer) {
+            this._spriteRenderer = new NativeSpriteRenderer(this, () => {
+                const saved = this._renderData;
+                const rd = this.requestRenderData() as RenderData;
+                (this as any)._renderData = saved;
+                return rd;
+            });
+        }
+        this._spriteRenderer.beginFrame(ax, ay, w, h);
         this._bmQuads = this._htmlString ? this._buildBMQuads(w, h, ax, ay, layout) : [];
+        this._spriteRenderer.endFrame();
+        console.log(`[StyledLabel BM] endFrame overlay=${this._spriteRenderer.overlayRenderData ? 'yes' : 'no'}`);
         this._contentDirty = false;
 
         const vCount = this._bmQuads.length * 4;
@@ -776,7 +789,25 @@ export class StyledLabel extends UIRenderer {
             let curX = startX;
             for (let i = 0; i < line.words.length; i++) {
                 const word = line.words[i];
-                if (word.style?.spriteName) { curX += word.w; continue; }
+                if (word.style?.spriteName) {
+                    const frame = this._spriteAtlas?.getSpriteFrame(word.style.spriteName);
+                    console.log(`[StyledLabel BM] sprite "${word.style.spriteName}" frame=${!!frame} renderer=${!!this._spriteRenderer}`);
+                    if (frame && this._spriteRenderer) {
+                        const wordScale = nativeSize > 0
+                            ? ((word.style?.size ?? this.fontSize) * fontScale) / nativeSize
+                            : 1;
+                        const drawY = wordBaselineY(
+                            lineY, line.lineH,
+                            nativeBase * wordScale,
+                            nativeBase * lineMaxScale,
+                            word.h, word.style.vAlign,
+                        );
+                        const offsetPx = (word.style.spriteOffsetY ?? 0) * word.h;
+                        this._spriteRenderer.render(frame, curX, drawY - word.h - offsetPx, word.w, word.h);
+                    }
+                    curX += word.w;
+                    continue;
+                }
 
                 const size = (word.style?.size ?? this.fontSize) * fontScale;
                 const scale = nativeSize > 0 ? size / nativeSize : 1;

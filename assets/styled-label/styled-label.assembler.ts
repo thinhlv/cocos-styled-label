@@ -163,7 +163,7 @@ const _bmAssembler = {
     updateColor(comp: UIRenderer): void {
         _bmApplyNodeColor(comp as StyledLabel);
     },
-    fillBuffers(comp: UIRenderer, _renderer: any): void {
+    fillBuffers(comp: UIRenderer, renderer: any): void {
         const rd = comp.renderData as RenderData;
         if (!rd || rd.vertexCount === 0) return;
         const chunk = (rd as any).chunk;
@@ -185,6 +185,12 @@ const _bmAssembler = {
             ib[io++] = base + 1; ib[io++] = base + 3; ib[io++] = base + 2;
         }
         mb.indexOffset += quadCount * 6;
+
+        // Commit overlay sprites (inline sprites in BitmapFont mode).
+        const spr = self._spriteRenderer;
+        if (spr?.overlayRenderData && spr.overlayFrame && renderer?.commitComp) {
+            renderer.commitComp(self, spr.overlayRenderData, spr.overlayFrame, spr.overlayAssembler, null);
+        }
     },
 };
 

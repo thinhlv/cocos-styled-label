@@ -14,7 +14,7 @@
 // All assertions check rendered vertex Y positions (screen-local Y-up coords),
 // not internal formulas — independent of implementation details.
 
-import { BitmapFont, SpriteFrame, Texture2D } from 'cc';
+import { BitmapFont, SpriteFrame, SpriteAtlas, Texture2D, Rect } from 'cc';
 import { StyledLabel } from '../../../assets/styled-label/styled-label';
 import { VAlign, HAlign } from '../../../assets/styled-label/styled-label.layout';
 
@@ -183,5 +183,97 @@ describe('BitmapFont Scenario C — multi-line "0<br>0", number-normal metrics, 
     test('BOTTOM: bottom of last line ≈ node bottom (within 2px)', () => {
         const { yb } = allGlyphBounds(freshC(VAlign.BOTTOM));
         expect(Math.abs(yb - nodeBottom)).toBeLessThan(2);
+    });
+});
+
+// ── Sprite inline in BitmapFont mode ─────────────────────────────────────────
+//
+// Font: commonHeight=72, base=59, space-only dictionary (no renderable glyphs).
+// Sprite: 'coin' frame, 32×32px texture rect → display h = fontSize = 24.
+// Node: 300×70, anchor (0.5, 0.5).
+//
+// Y-up node-local yt = (1 - anchorY) * canvasH - canvasTopY
+//                    = 0.5 * 70 - canvasTopY
+//
+// offsetY=0.5  → canvasTopY decreases by 12  → yt increases   (shifted UP)
+// offsetY=-0.5 → canvasTopY increases by 12  → yt decreases   (shifted DOWN)
+
+describe('BitmapFont sprite inline rendering', () => {
+    const NODE_W = 300, NODE_H = 70, FONT_SIZE = 24;
+
+    function makeSpriteFont(): BitmapFont {
+        const font = new BitmapFont();
+        (font as any).fntConfig = {
+            commonHeight: 72, fontSize: 72, base: 59,
+            fontDefDictionary: {
+                32: { rect: { x:0, y:0, width:0, height:0 }, xOffset:0, yOffset:0, xAdvance:21 },
+            },
+        };
+        const sf = new SpriteFrame(); sf.texture = new Texture2D();
+        (font as any).spriteFrame = sf;
+        return font;
+    }
+
+    function makeAtlas(): SpriteAtlas {
+        const atlas = new SpriteAtlas();
+        const frame = new SpriteFrame();
+        frame.texture = new Texture2D();
+        frame.rect = new Rect(0, 0, 32, 32);
+        atlas.addFrame('coin', frame);
+        return atlas;
+    }
+
+    function freshSprite(str: string): StyledLabel {
+        (StyledLabel as any)._mCtx = null;
+        (StyledLabel as any)._measureCache?.clear();
+        const label = new StyledLabel();
+        (label as any).node = makeNode(NODE_W, NODE_H);
+        (label as any)._font = makeSpriteFont();
+        (label as any)._spriteAtlas = makeAtlas();
+        label.fontSize = FONT_SIZE;
+        label.lineHeight = 0;
+        label.wordWrap = false;
+        label.align.vertical = VAlign.TOP;
+        label.onLoad();
+        label.onEnable();
+        label.string = str;
+        (label as any)._contentDirty = true;
+        label._doUpdate();
+        return label;
+    }
+
+    function overlayYt(label: StyledLabel): number {
+        const data = (label as any)._spriteRenderer?.overlayRenderData?.data as Array<{ y: number }> | undefined;
+        if (!data) return NaN;
+        return Math.max(...data.map(v => v.y));
+    }
+
+    test('_spriteRenderer is initialized for BitmapFont', () => {
+        const label = freshSprite('<sprite=coin>');
+        expect((label as any)._spriteRenderer).not.toBeNull();
+    });
+
+    test('overlayRenderData is non-null when sprite is rendered', () => {
+        const label = freshSprite('<sprite=coin>');
+        expect((label as any)._spriteRenderer?.overlayRenderData).not.toBeNull();
+    });
+
+    test('overlayRenderData is null when string has no sprite', () => {
+        const label = freshSprite('text');
+        expect((label as any)._spriteRenderer?.overlayRenderData).toBeNull();
+    });
+
+    test('offsetY=0.5 shifts sprite upward (larger yt in Y-up coords)', () => {
+        const ytBase   = overlayYt(freshSprite('<sprite=coin>'));
+        const ytOffset = overlayYt(freshSprite('<sprite=coin offsetY=0.5>'));
+        expect(isNaN(ytBase)).toBe(false);
+        expect(ytOffset).toBeGreaterThan(ytBase);
+    });
+
+    test('offsetY=-0.5 shifts sprite downward (smaller yt in Y-up coords)', () => {
+        const ytBase   = overlayYt(freshSprite('<sprite=coin>'));
+        const ytOffset = overlayYt(freshSprite('<sprite=coin offsetY=-0.5>'));
+        expect(isNaN(ytBase)).toBe(false);
+        expect(ytOffset).toBeLessThan(ytBase);
     });
 });
