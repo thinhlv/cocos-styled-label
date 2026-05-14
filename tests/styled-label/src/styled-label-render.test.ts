@@ -69,6 +69,7 @@ describe('StyledLabel — lifecycle: init', () => {
         // Reset static measurement cache between tests.
         (StyledLabel as any)._mCtx = null;
         (StyledLabel as any)._measureCache?.clear();
+        (StyledLabel as any)._inflatedMap = null;
     });
 
     test('onLoad creates canvas resources (_offCanvas, _offTex, _offFrame)', () => {
@@ -100,6 +101,7 @@ describe('StyledLabel — lifecycle: initial render', () => {
     beforeEach(() => {
         (StyledLabel as any)._mCtx = null;
         (StyledLabel as any)._measureCache?.clear();
+        (StyledLabel as any)._inflatedMap = null;
         label = makeLabel();
         label.string = 'hello';
         label.onLoad();
@@ -145,6 +147,7 @@ describe('StyledLabel — onEnable fix: _prevW/_prevH reset', () => {
     beforeEach(() => {
         (StyledLabel as any)._mCtx = null;
         (StyledLabel as any)._measureCache?.clear();
+        (StyledLabel as any)._inflatedMap = null;
         label = makeLabel();
         label.string = 'hello';
         label.onLoad();
@@ -182,6 +185,7 @@ describe('StyledLabel — disable → re-enable render', () => {
     beforeEach(() => {
         (StyledLabel as any)._mCtx = null;
         (StyledLabel as any)._measureCache?.clear();
+        (StyledLabel as any)._inflatedMap = null;
         label = makeLabel();
         label.string = 'hello';
         label.onLoad();
@@ -256,6 +260,7 @@ describe('StyledLabel — onEnable canvas resource recreation (GFX rebind fix)',
     beforeEach(() => {
         (StyledLabel as any)._mCtx = null;
         (StyledLabel as any)._measureCache?.clear();
+        (StyledLabel as any)._inflatedMap = null;
         label = makeLabel();
         label.string = 'hello';
         label.onLoad();

@@ -68,6 +68,7 @@ function makeNode(width: number, height: number) {
 function freshLabel(vAlign: VAlign): StyledLabel {
     (StyledLabel as any)._mCtx = null;
     (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
     const label = new StyledLabel();
     (label as any).node = makeNode(NODE_W, NODE_H);
     label.string      = '1,200,000';

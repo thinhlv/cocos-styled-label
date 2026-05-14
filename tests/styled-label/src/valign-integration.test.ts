@@ -57,6 +57,7 @@ function makeNodeV(width: number, height: number) {
 function freshLabelV(width = 150, height = 60): StyledLabel {
     (StyledLabel as any)._mCtx = null;
     (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
     const label = new StyledLabel();
     (label as any).node = makeNodeV(width, height);
     return label;

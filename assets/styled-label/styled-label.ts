@@ -63,6 +63,7 @@ export class StyledLabel extends UIRenderer {
         if (this._font === v) return;
         this._font = v;
         StyledLabel._measureCache.clear();
+        StyledLabel._inflatedMap = null;
         if (!EDITOR) { this._cFontUuid = v?.uuid ?? ''; this._contentDirty = true; this._flushAssembler(); this.markForUpdateRenderData(true); }
     }
 
@@ -219,6 +220,9 @@ export class StyledLabel extends UIRenderer {
     }
     private static _measureCache = new Map<string, number>();
     private static readonly _MEASURE_CACHE_MAX = 512;
+    // Per-font-family classification: true = inflated (fba > fontSize at reference size).
+    // Cached once so per-size baseline doesn't oscillate for fonts with fba/size ratio ≈ 1.
+    private static _inflatedMap: Map<string, boolean> | null = null;
 
     // ── Property accessors ────────────────────────────────────────────────────
 
@@ -592,6 +596,22 @@ export class StyledLabel extends UIRenderer {
         return w;
     }
 
+    private _isFontInflated(family: string): boolean {
+        if (!StyledLabel._inflatedMap) StyledLabel._inflatedMap = new Map();
+        const cached = StyledLabel._inflatedMap.get(family);
+        if (cached !== undefined) return cached;
+        // Measure at a fixed reference size once to classify the font.
+        const refSize = 100;
+        const ctx = StyledLabel._getMCtx();
+        ctx.font = `${refSize}px "${family}"`;
+        ctx.textBaseline = 'alphabetic';
+        const m = ctx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
+        const fba = (m as any).fontBoundingBoxAscent as number | undefined;
+        const inflated = fba !== undefined && fba > refSize;
+        StyledLabel._inflatedMap.set(family, inflated);
+        return inflated;
+    }
+
     private _fontAscent(size: number, bold = false, italic = false): number {
         const family = this._getFontFamily();
         const key = `fa\0${family}\0${bold ? 1 : 0}${italic ? 1 : 0}${size}`;
@@ -602,9 +622,10 @@ export class StyledLabel extends UIRenderer {
         ctx.textBaseline = 'alphabetic';
         const m = ctx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
         const fba = (m as any).fontBoundingBoxAscent as number | undefined;
-        // Use fontBoundingBoxAscent when it is within the em-square (system fonts, fba ≤ size).
-        // Some TTF fonts declare fba > fontSize (inflated); fall back to actualBoundingBoxAscent.
-        const v = (fba !== undefined && fba <= size) ? fba : (m.actualBoundingBoxAscent ?? size * 0.8);
+        // Cached per-font classification ensures the same font always uses the same
+        // formula regardless of size — no baseline oscillation for fonts with fba/size ratio ≈ 1.
+        const isInflated = fba !== undefined ? this._isFontInflated(family) : true;
+        const v = isInflated ? (m.actualBoundingBoxAscent ?? size * 0.8) : fba!;
         if (StyledLabel._measureCache.size >= StyledLabel._MEASURE_CACHE_MAX)
             StyledLabel._measureCache.delete(StyledLabel._measureCache.keys().next().value!);
         StyledLabel._measureCache.set(key, v);

@@ -52,6 +52,7 @@ function makeNodeU(width = 200, height = 60) {
 function freshLabel(width = 200, height = 60): StyledLabel {
     (StyledLabel as any)._mCtx = null;
     (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
     const label = new StyledLabel();
     (label as any).node = makeNodeU(width, height);
     return label;
