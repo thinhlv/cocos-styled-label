@@ -67,6 +67,7 @@ function makeBMFont(): BitmapFont {
 function freshBMLabel(vAlign: VAlign): StyledLabel {
     (StyledLabel as any)._mCtx = null;
     (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
 
     const label = new StyledLabel();
     (label as any).node = makeNode();

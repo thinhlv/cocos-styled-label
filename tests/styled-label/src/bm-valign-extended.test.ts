@@ -81,6 +81,7 @@ describe('BitmapFont Scenario B — nativeSize=48, base=38, fontSize=32, nodeH=8
     function freshB(vAlign: VAlign): StyledLabel {
         (StyledLabel as any)._mCtx = null;
         (StyledLabel as any)._measureCache?.clear();
+        (StyledLabel as any)._inflatedMap = null;
         const label = new StyledLabel();
         (label as any).node = makeNode(300, NODE_H_B);
         (label as any)._font = makeFontB();
@@ -159,6 +160,7 @@ describe('BitmapFont Scenario C — multi-line "0<br>0", number-normal metrics, 
     function freshC(vAlign: VAlign): StyledLabel {
         (StyledLabel as any)._mCtx = null;
         (StyledLabel as any)._measureCache?.clear();
+        (StyledLabel as any)._inflatedMap = null;
         const label = new StyledLabel();
         (label as any).node = makeNode(300, NODE_H_C);
         (label as any)._font = makeFontC();
@@ -226,6 +228,7 @@ describe('BitmapFont sprite inline rendering', () => {
     function freshSprite(str: string): StyledLabel {
         (StyledLabel as any)._mCtx = null;
         (StyledLabel as any)._measureCache?.clear();
+        (StyledLabel as any)._inflatedMap = null;
         const label = new StyledLabel();
         (label as any).node = makeNode(NODE_W, NODE_H);
         (label as any)._font = makeSpriteFont();

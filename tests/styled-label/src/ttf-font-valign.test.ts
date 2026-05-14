@@ -77,6 +77,7 @@ function makeNode() {
 function freshLabel(vAlign: VAlign): void {
     (StyledLabel as any)._mCtx = null;
     (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
     capturedDrawY = 0;
 
     const label = new StyledLabel();
@@ -98,6 +99,7 @@ function freshLabel(vAlign: VAlign): void {
 beforeEach(() => {
     (StyledLabel as any)._mCtx = null;
     (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
     capturedDrawY = 0;
 });
 
