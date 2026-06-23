@@ -5,20 +5,21 @@ import {
 import { EDITOR } from 'cc/env';
 import {
     HAlign, VAlign, OverflowMode, TextTransform,
-    HtmlTextParser, buildLayout, wordBaselineY,
+    HtmlTextParser, buildLayout, wordBaselineY, GradientScope
 } from './styled-label.layout';
 import type { ITextSegment, ILayoutResult } from './styled-label.layout';
 import {
-    StyledLabelMargin, StyledLabelSpacing, StyledLabelAlign,
+    StyledLabelMargin, StyledLabelSpacing, StyledLabelAlign, StyledLabelGradient, StyledLabelOutline,
     _quadAssembler, _bmAssembler,
     _localVertUpdate, _uvUpdate, _colorUpdate, _bmApplyNodeColor,
 } from './styled-label.assembler';
-import type { IBMGlyph, IBMFntConfig, IBMQuadInfo } from './styled-label.assembler';
+import type { IBMGlyph, IBMFntConfig, IBMQuadInfo, IBMLineBounds } from './styled-label.assembler';
 import { ISpriteRenderer, WebSpriteRenderer, NativeSpriteRenderer } from './styled-label.sprite-renderer';
 
-export { StyledLabelMargin, StyledLabelSpacing, StyledLabelAlign };
+export { StyledLabelMargin, StyledLabelSpacing, StyledLabelAlign, StyledLabelGradient, StyledLabelOutline };
 
 const { ccclass, property, executeInEditMode } = _decorator;
+
 
 Enum(HAlign);
 Enum(VAlign);
@@ -38,6 +39,8 @@ const WatchProp = BitMask({
     WordWrap:    1 << 9,
     Transform:   1 << 10,
     SpriteAtlas: 1 << 11,
+    Gradient:    1 << 12,
+    Outline:     1 << 13,
 });
 
 // ─── StyledLabel ──────────────────────────────────────────────────────────────
@@ -167,6 +170,8 @@ export class StyledLabel extends UIRenderer {
     @property(StyledLabelAlign)  public align: StyledLabelAlign = new StyledLabelAlign();
     @property(StyledLabelMargin) public margin: StyledLabelMargin = new StyledLabelMargin();
     @property(StyledLabelSpacing) public spacing: StyledLabelSpacing = new StyledLabelSpacing();
+    @property(StyledLabelGradient) public gradient: StyledLabelGradient = new StyledLabelGradient();
+    @property(StyledLabelOutline) public outline: StyledLabelOutline = new StyledLabelOutline();
 
     // ── TTF canvas resources ──────────────────────────────────────────────────
 
@@ -183,6 +188,7 @@ export class StyledLabel extends UIRenderer {
 
     // Public — accessed by _bmApplyNodeColor in styled-label.assembler.ts.
     public _bmQuads: IBMQuadInfo[] = [];
+    public _bmLines: IBMLineBounds[] = [];
     private _bmSpriteFrame: SpriteFrame | null = null;
 
     // ── Shared state ──────────────────────────────────────────────────────────
@@ -206,6 +212,17 @@ export class StyledLabel extends UIRenderer {
     private _cWordWrap    = true;
     private _cTransform   = TextTransform.NONE;
     private _cAtlasUuid   = '';
+    private _cGradEnabled = false;
+    private _cGradScope: GradientScope = GradientScope.Glyph;
+    private _cGradTL_R = 255; private _cGradTL_G = 255; private _cGradTL_B = 255; private _cGradTL_A = 255;
+    private _cGradTR_R = 255; private _cGradTR_G = 255; private _cGradTR_B = 255; private _cGradTR_A = 255;
+    private _cGradBL_R = 255; private _cGradBL_G = 255; private _cGradBL_B = 255; private _cGradBL_A = 255;
+    private _cGradBR_R = 255; private _cGradBR_G = 255; private _cGradBR_B = 255; private _cGradBR_A = 255;
+    private _cOutEnabled = false;
+    private _cOutSoft = false;
+    private _cOutThickness = 1;
+    private _cOutR = 0; private _cOutG = 0; private _cOutB = 0; private _cOutA = 255;
+    private _cOutOffsetX = 0; private _cOutOffsetY = 0;
 
     private _parser = new HtmlTextParser();
     private _parsedHtml = '';
@@ -223,6 +240,7 @@ export class StyledLabel extends UIRenderer {
     // Per-font-family classification: true = inflated (fba > fontSize at reference size).
     // Cached once so per-size baseline doesn't oscillate for fonts with fba/size ratio ≈ 1.
     private static _inflatedMap: Map<string, boolean> | null = null;
+    private static _bmOutlineWarned = false;
 
     // ── Property accessors ────────────────────────────────────────────────────
 
@@ -279,6 +297,7 @@ export class StyledLabel extends UIRenderer {
         this._offFrame = null;
         this._spriteRenderer = null;
         this._bmQuads = [];
+        this._bmLines = [];
         this._bmSpriteFrame = null;
         super.onDestroy();
     }
@@ -537,7 +556,36 @@ export class StyledLabel extends UIRenderer {
         if (flags & WatchProp.WordWrap   && this._wordWrap            !== this._cWordWrap)    return true;
         if (flags & WatchProp.Transform  && this._textTransform       !== this._cTransform)   return true;
         if (flags & WatchProp.SpriteAtlas && (this._spriteAtlas?.uuid ?? '') !== this._cAtlasUuid) return true;
+        if (flags & WatchProp.Gradient && this._gradientChanged()) return true;
+        if (flags & WatchProp.Outline && this._outlineChanged()) return true;
         return false;
+    }
+
+    private _outlineChanged(): boolean {
+        const o = this.outline;
+        if (!o) return false;
+        if (o.enabled !== this._cOutEnabled) return true;
+        if (o.soft !== this._cOutSoft) return true;
+        if (o.thickness !== this._cOutThickness) return true;
+        if (o.offsetX !== this._cOutOffsetX) return true;
+        if (o.offsetY !== this._cOutOffsetY) return true;
+        const c = o.color;
+        return c.r !== this._cOutR || c.g !== this._cOutG || c.b !== this._cOutB || c.a !== this._cOutA;
+    }
+
+    private _gradientChanged(): boolean {
+        const g = this.gradient;
+        if (!g) return false;
+        if (g.enabled !== this._cGradEnabled) return true;
+        if (g.scope !== this._cGradScope) return true;
+        const tl = g.topLeft,     tr = g.topRight;
+        const bl = g.bottomLeft,  br = g.bottomRight;
+        return (
+            tl.r !== this._cGradTL_R || tl.g !== this._cGradTL_G || tl.b !== this._cGradTL_B || tl.a !== this._cGradTL_A ||
+            tr.r !== this._cGradTR_R || tr.g !== this._cGradTR_G || tr.b !== this._cGradTR_B || tr.a !== this._cGradTR_A ||
+            bl.r !== this._cGradBL_R || bl.g !== this._cGradBL_G || bl.b !== this._cGradBL_B || bl.a !== this._cGradBL_A ||
+            br.r !== this._cGradBR_R || br.g !== this._cGradBR_G || br.b !== this._cGradBR_B || br.a !== this._cGradBR_A
+        );
     }
 
     private _updateCache(flags: number): void {
@@ -561,6 +609,31 @@ export class StyledLabel extends UIRenderer {
         if (flags & WatchProp.WordWrap)   this._cWordWrap    = this._wordWrap;
         if (flags & WatchProp.Transform)  this._cTransform   = this._textTransform;
         if (flags & WatchProp.SpriteAtlas) this._cAtlasUuid  = this._spriteAtlas?.uuid ?? '';
+        if (flags & WatchProp.Gradient) {
+            const g = this.gradient;
+            if (g) {
+                this._cGradEnabled = g.enabled;
+                this._cGradScope   = g.scope;
+                const tl = g.topLeft,    tr = g.topRight;
+                const bl = g.bottomLeft, br = g.bottomRight;
+                this._cGradTL_R = tl.r; this._cGradTL_G = tl.g; this._cGradTL_B = tl.b; this._cGradTL_A = tl.a;
+                this._cGradTR_R = tr.r; this._cGradTR_G = tr.g; this._cGradTR_B = tr.b; this._cGradTR_A = tr.a;
+                this._cGradBL_R = bl.r; this._cGradBL_G = bl.g; this._cGradBL_B = bl.b; this._cGradBL_A = bl.a;
+                this._cGradBR_R = br.r; this._cGradBR_G = br.g; this._cGradBR_B = br.b; this._cGradBR_A = br.a;
+            }
+        }
+        if (flags & WatchProp.Outline) {
+            const o = this.outline;
+            if (o) {
+                this._cOutEnabled = o.enabled;
+                this._cOutSoft = o.soft;
+                this._cOutThickness = o.thickness;
+                this._cOutOffsetX = o.offsetX;
+                this._cOutOffsetY = o.offsetY;
+                const c = o.color;
+                this._cOutR = c.r; this._cOutG = c.g; this._cOutB = c.b; this._cOutA = c.a;
+            }
+        }
     }
 
     // ── Private: measurement ──────────────────────────────────────────────────
@@ -707,7 +780,12 @@ export class StyledLabel extends UIRenderer {
             });
         }
         this._spriteRenderer.beginFrame(ax, ay, w, h);
-        this._bmQuads = this._htmlString ? this._buildBMQuads(w, h, ax, ay, layout) : [];
+        if (this._htmlString) {
+            this._bmQuads = this._buildBMQuads(w, h, ax, ay, layout);
+        } else {
+            this._bmQuads = [];
+            this._bmLines = [];
+        }
         this._spriteRenderer.endFrame();
         console.log(`[StyledLabel BM] endFrame overlay=${this._spriteRenderer.overlayRenderData ? 'yes' : 'no'}`);
         this._contentDirty = false;
@@ -772,7 +850,19 @@ export class StyledLabel extends UIRenderer {
 
         const { lines, maxW, fontScale } = layout ?? this._buildLayout(canvasW, canvasH);
         const quads: IBMQuadInfo[] = [];
+        const lineBounds: IBMLineBounds[] = [];
         const ml = this.marginLeft, mt = this.marginTop;
+
+        // BitmapFont outline disabled — stamp quads can exceed StaticVBAccessor chunk size
+        // for long labels (single comp must fit one chunk). Outline still works for TTF.
+        if (this.outline?.enabled && !StyledLabel._bmOutlineWarned) {
+            StyledLabel._bmOutlineWarned = true;
+            console.warn('[StyledLabel] outline is not supported on BitmapFont; use a TTF font for outlined text.');
+        }
+        const outlineOn = false;
+        const outlineStamps: Array<{ dx: number; dy: number; alpha: number }> = [];
+        const outR = 0, outG = 0, outB = 0, outA = 0;
+        const outOffX = 0, outOffY = 0;
 
         // Compute visual bounding box of all glyphs at native scale.
         // vOffset from buildLayout() assumes visual height = fontSize, which is wrong for
@@ -803,6 +893,7 @@ export class StyledLabel extends UIRenderer {
 
         for (let li = 0; li < lines.length; li++) {
             const line = lines[li];
+            const lineQuadStart = quads.length;
             let lineMaxScale = 0;
             for (let i = 0; i < line.words.length; i++) {
                 const ws = ((line.words[i].style?.size ?? this.fontSize) * fontScale) / (nativeSize || 1);
@@ -868,13 +959,37 @@ export class StyledLabel extends UIRenderer {
                     const yb = (1 - anchorY) * canvasH - gCanvasY - gH;
                     const u0 = g.rect.x / texW, u1 = (g.rect.x + g.rect.width) / texW;
                     const v0 = g.rect.y / texH, v1 = (g.rect.y + g.rect.height) / texH;
-                    quads.push({ xl, xr, yb, yt, u0, v0, u1, v1, r: cr, g: cg, b: cb, a: ca });
+                    if (outlineOn) {
+                        for (let s = 0; s < outlineStamps.length; s++) {
+                            const st = outlineStamps[s];
+                            quads.push({
+                                xl: xl + st.dx + outOffX, xr: xr + st.dx + outOffX,
+                                yb: yb - st.dy - outOffY, yt: yt - st.dy - outOffY,
+                                u0, v0, u1, v1,
+                                r: outR, g: outG, b: outB, a: Math.round(outA * st.alpha),
+                                lineIndex: li, isOutline: true,
+                            });
+                        }
+                    }
+                    quads.push({ xl, xr, yb, yt, u0, v0, u1, v1, r: cr, g: cg, b: cb, a: ca, lineIndex: li });
                     glyphX += g.xAdvance * scale;
                 }
                 curX += word.w;
             }
+            let bLeft = Infinity, bRight = -Infinity, bTop = -Infinity, bBottom = Infinity;
+            for (let q = lineQuadStart; q < quads.length; q++) {
+                const qi = quads[q];
+                if (qi.isOutline) continue;
+                if (qi.xl < bLeft)   bLeft = qi.xl;
+                if (qi.xr > bRight)  bRight = qi.xr;
+                if (qi.yt > bTop)    bTop = qi.yt;
+                if (qi.yb < bBottom) bBottom = qi.yb;
+            }
+            if (!isFinite(bLeft)) { bLeft = 0; bRight = 0; bTop = 0; bBottom = 0; }
+            lineBounds.push({ left: bLeft, right: bRight, top: bTop, bottom: bBottom });
             lineY += line.lineH + this.lineSpacing;
         }
+        this._bmLines = lineBounds;
         return quads;
     }
 
@@ -888,6 +1003,27 @@ export class StyledLabel extends UIRenderer {
         const ml = this.marginLeft, mt = this.marginTop;
         let lineY = mt + vOffset + topPad;
 
+        const out = this.outline;
+        const outOn = !!out?.enabled && out!.thickness > 0;
+        const outCss = outOn ? _colorCss(out!.color) : '';
+
+        const grad = this.gradient;
+        const gradOn = !!grad?.enabled;
+        const gradLineScope = gradOn && grad!.scope === GradientScope.Line;
+        let gradVertical = false;
+        let topCss = '', botCss = '';
+        if (gradOn) {
+            const tl = grad!.topLeft,    tr = grad!.topRight;
+            const bl = grad!.bottomLeft, br = grad!.bottomRight;
+            const sameTop = tl.r === tr.r && tl.g === tr.g && tl.b === tr.b && tl.a === tr.a;
+            const sameBot = bl.r === br.r && bl.g === br.g && bl.b === br.b && bl.a === br.a;
+            gradVertical = sameTop && sameBot;
+            if (gradVertical) {
+                topCss = _colorCss(tl);
+                botCss = _colorCss(bl);
+            }
+        }
+
         for (let li = 0; li < lines.length; li++) {
             const line = lines[li];
             let maxSize = this.fontSize * fontScale;
@@ -899,6 +1035,18 @@ export class StyledLabel extends UIRenderer {
             let startX = ml;
             if (this.hAlign === HAlign.CENTER) startX = ml + (maxW - line.lineW) / 2;
             else if (this.hAlign === HAlign.RIGHT) startX = ml + maxW - line.lineW;
+
+            const lineYTop = lineY;
+            const lineYBot = lineY + line.lineH;
+            const lineLeft = startX;
+            const lineRight = startX + line.lineW;
+
+            let lineGrad: CanvasGradient | null = null;
+            if (gradLineScope && gradVertical && line.lineW > 0 && line.words.length > 0) {
+                lineGrad = ctx.createLinearGradient(0, lineYTop, 0, lineYBot);
+                lineGrad.addColorStop(0, topCss);
+                lineGrad.addColorStop(1, botCss);
+            }
 
             let curX = startX;
             for (let i = 0; i < line.words.length; i++) {
@@ -924,15 +1072,206 @@ export class StyledLabel extends UIRenderer {
                     ? (rawColor.startsWith('#') ? rawColor : `#${rawColor}`)
                     : `rgba(${this.defaultColor.r},${this.defaultColor.g},${this.defaultColor.b},${this.defaultColor.a / 255})`;
 
-                ctx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
-                ctx.fillStyle = colorStr;
-                ctx.fillText(word.text, curX, drawY);
-                if (word.style?.underline)
-                    ctx.fillRect(curX, drawY + Math.max(1, size * 0.05), ctx.measureText(word.text.replace(/\s+$/, '')).width, Math.max(1, size / 14));
+                const fontStr = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
+                ctx.font = fontStr;
+                if (outOn && word.text.length > 0) {
+                    ctx.save();
+                    ctx.font = fontStr;
+                    const ox = out!.offsetX;
+                    const oy = out!.offsetY;
+                    if (out!.soft) {
+                        ctx.shadowColor = outCss;
+                        ctx.shadowBlur = out!.thickness;
+                        ctx.fillStyle = outCss;
+                        for (let p = 0; p < 4; p++) ctx.fillText(word.text, curX + ox, drawY + oy);
+                    } else {
+                        ctx.lineJoin = 'round';
+                        ctx.miterLimit = 2;
+                        ctx.lineWidth = out!.thickness * 2;
+                        ctx.strokeStyle = outCss;
+                        ctx.strokeText(word.text, curX + ox, drawY + oy);
+                    }
+                    ctx.restore();
+                }
+                if (gradLineScope && gradVertical && lineGrad) {
+                    ctx.fillStyle = lineGrad;
+                    ctx.fillText(word.text, curX, drawY);
+                } else if (gradLineScope) {
+                    const uvBounds = { left: lineLeft, right: lineRight, top: lineYTop, bottom: lineYBot };
+                    let prefix = "";
+                    for (const ch of word.text) {
+                        const m = ctx.measureText(ch);
+                        const cx = curX + ctx.measureText(prefix + ch).width - m.width;
+                        const ascentPx  = (m as any).actualBoundingBoxAscent  ?? wordAscent;
+                        const descentPx = (m as any).actualBoundingBoxDescent ?? 0;
+                        _paintBilinearGlyph(ctx, ch, fontStr, cx, drawY, ascentPx, descentPx,
+                            grad!.topLeft, grad!.topRight, grad!.bottomLeft, grad!.bottomRight, uvBounds);
+                        prefix += ch;
+                    }
+                } else if (gradOn && gradVertical) {
+                    let prefix = "";
+                    for (const ch of word.text) {
+                        const m = ctx.measureText(ch);
+                        const cx = curX + ctx.measureText(prefix + ch).width - m.width;
+                        const ascentPx  = (m as any).actualBoundingBoxAscent  ?? wordAscent;
+                        const descentPx = (m as any).actualBoundingBoxDescent ?? 0;
+                        const yTop = drawY - ascentPx;
+                        const yBot = drawY + descentPx;
+                        const lg = ctx.createLinearGradient(0, yTop, 0, yBot);
+                        lg.addColorStop(0, topCss);
+                        lg.addColorStop(1, botCss);
+                        ctx.fillStyle = lg;
+                        ctx.fillText(ch, cx, drawY);
+                        prefix += ch;
+                    }
+                } else if (gradOn) {
+                    let prefix = "";
+                    for (const ch of word.text) {
+                        const m = ctx.measureText(ch);
+                        const cx = curX + ctx.measureText(prefix + ch).width - m.width;
+                        const ascentPx  = (m as any).actualBoundingBoxAscent  ?? wordAscent;
+                        const descentPx = (m as any).actualBoundingBoxDescent ?? 0;
+                        _paintBilinearGlyph(ctx, ch, fontStr, cx, drawY, ascentPx, descentPx,
+                            grad!.topLeft, grad!.topRight, grad!.bottomLeft, grad!.bottomRight);
+                        prefix += ch;
+                    }
+                } else {
+                    ctx.fillStyle = colorStr;
+                    ctx.fillText(word.text, curX, drawY);
+                }
+                if (word.style?.underline) {
+                    const ulW = ctx.measureText(word.text.replace(/\s+$/, '')).width;
+                    const ulY = drawY + Math.max(1, size * 0.05);
+                    const ulH = Math.max(1, size / 14);
+                    if (outOn) {
+                        ctx.save();
+                        const ox = out!.offsetX;
+                        const oy = out!.offsetY;
+                        if (out!.soft) {
+                            ctx.shadowColor = outCss;
+                            ctx.shadowBlur = out!.thickness;
+                            ctx.fillStyle = outCss;
+                            for (let p = 0; p < 4; p++) ctx.fillRect(curX + ox, ulY + oy, ulW, ulH);
+                        } else {
+                            const t = out!.thickness;
+                            ctx.fillStyle = outCss;
+                            ctx.fillRect(curX + ox - t, ulY + oy - t, ulW + 2 * t, ulH + 2 * t);
+                        }
+                        ctx.restore();
+                    }
+                    // Some gradient branches (per-glyph bilinear, line-scope bilinear) never
+                    // assign ctx.fillStyle, so a stale/default value would paint the underline.
+                    // Set it explicitly here from the active configuration.
+                    if (gradOn) {
+                        const ulLeft  = gradLineScope ? lineLeft  : curX;
+                        const ulRight = gradLineScope ? lineRight : curX + ulW;
+                        const ulGrad = ctx.createLinearGradient(ulLeft, 0, ulRight, 0);
+                        ulGrad.addColorStop(0, _colorCss(grad!.bottomLeft));
+                        ulGrad.addColorStop(1, _colorCss(grad!.bottomRight));
+                        ctx.fillStyle = ulGrad;
+                    } else {
+                        ctx.fillStyle = colorStr;
+                    }
+                    ctx.fillRect(curX, ulY, ulW, ulH);
+                }
 
                 curX += word.w;
             }
             lineY += line.lineH + this.lineSpacing;
         }
     }
+}
+
+function _colorCss(c: Color): string {
+    return `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
+}
+
+let _gradGlyphCanvas: HTMLCanvasElement | null = null;
+let _gradGlyphCtx: CanvasRenderingContext2D | null = null;
+function _getGradGlyphCtx(): CanvasRenderingContext2D {
+    if (!_gradGlyphCtx) {
+        _gradGlyphCanvas = document.createElement('canvas');
+        _gradGlyphCtx = _gradGlyphCanvas.getContext('2d')!;
+    }
+    return _gradGlyphCtx!;
+}
+
+// Paint a single glyph with bilinear 4-corner color into main ctx.
+// uvBounds, when supplied, maps each pixel's (u, v) against an outer box
+// (e.g. the line) instead of the glyph's own box — used for line-mode gradient.
+function _paintBilinearGlyph(
+    ctx: CanvasRenderingContext2D,
+    ch: string,
+    fontStr: string,
+    cx: number,
+    drawY: number,
+    ascentPx: number,
+    descentPx: number,
+    TL: Color, TR: Color, BL: Color, BR: Color,
+    uvBounds?: { left: number; right: number; top: number; bottom: number },
+): void {
+    const tmp = _getGradGlyphCtx();
+    // Set font BEFORE measureText: measureText reflects the ctx's current
+    // font, and a fresh / just-resized canvas defaults to "10px sans-serif".
+    // Without this, the first paint sizes tmp by 10-px metrics and fillText
+    // (using the real font) overflows the under-sized canvas.
+    tmp.font = fontStr;
+    const adv = tmp.measureText(ch);
+    const pad = 1;
+    const tmpW = Math.max(1, Math.ceil(adv.width) + pad * 2);
+    const tmpH = Math.max(1, Math.ceil(ascentPx + descentPx) + pad * 2);
+    if (tmp.canvas.width !== tmpW)  tmp.canvas.width  = tmpW;
+    if (tmp.canvas.height !== tmpH) tmp.canvas.height = tmpH;
+    // Resize clears state — re-set font + baseline.
+    tmp.font = fontStr;
+    tmp.textBaseline = 'alphabetic';
+    tmp.clearRect(0, 0, tmpW, tmpH);
+    tmp.fillStyle = '#ffffff';
+    tmp.fillText(ch, pad, ascentPx + pad);
+
+    const img = tmp.getImageData(0, 0, tmpW, tmpH);
+    const px = img.data;
+    const TLr = TL.r, TLg = TL.g, TLb = TL.b, TLa = TL.a;
+    const TRr = TR.r, TRg = TR.g, TRb = TR.b, TRa = TR.a;
+    const BLr = BL.r, BLg = BL.g, BLb = BL.b, BLa = BL.a;
+    const BRr = BR.r, BRg = BR.g, BRb = BR.b, BRa = BR.a;
+
+    const useLine = !!uvBounds;
+    const baseX = cx - pad;
+    const baseY = drawY - ascentPx - pad;
+    const lineLeft  = useLine ? uvBounds!.left   : 0;
+    const lineWidth = useLine ? Math.max(1e-6, uvBounds!.right  - uvBounds!.left)  : 1;
+    const lineTop   = useLine ? uvBounds!.top    : 0;
+    const lineHeight= useLine ? Math.max(1e-6, uvBounds!.bottom - uvBounds!.top)   : 1;
+    const denomX = useLine ? 1 : Math.max(1, tmpW - 1);
+    const denomY = useLine ? 1 : Math.max(1, tmpH - 1);
+
+    for (let y = 0; y < tmpH; y++) {
+        const v = useLine
+            ? ((baseY + y) - lineTop) / lineHeight
+            : y / denomY;
+        const tor = TLr + (BLr - TLr) * v;
+        const tog = TLg + (BLg - TLg) * v;
+        const tob = TLb + (BLb - TLb) * v;
+        const toa = TLa + (BLa - TLa) * v;
+        const ter = TRr + (BRr - TRr) * v;
+        const teg = TRg + (BRg - TRg) * v;
+        const teb = TRb + (BRb - TRb) * v;
+        const tea = TRa + (BRa - TRa) * v;
+        let idx = y * tmpW * 4;
+        for (let x = 0; x < tmpW; x++, idx += 4) {
+            const a = px[idx + 3];
+            if (a === 0) continue;
+            const u = useLine
+                ? ((baseX + x) - lineLeft) / lineWidth
+                : x / denomX;
+            px[idx]     = (tor + (ter - tor) * u) | 0;
+            px[idx + 1] = (tog + (teg - tog) * u) | 0;
+            px[idx + 2] = (tob + (teb - tob) * u) | 0;
+            const ca = toa + (tea - toa) * u;
+            px[idx + 3] = (a * (ca / 255)) | 0;
+        }
+    }
+    tmp.putImageData(img, 0, 0);
+    ctx.drawImage(tmp.canvas, cx - pad, drawY - ascentPx - pad);
 }

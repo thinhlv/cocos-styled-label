@@ -15,6 +15,10 @@ export class RenderData {
     resize(vCount: number, _iCount: number) {
         while (this.data.length < vCount) this.data.push({ x: 0, y: 0 });
         this.vertexCount = vCount;
+        const needFloats = vCount * this.floatStride;
+        if (this.chunk.vb.length < needFloats) {
+            this.chunk.vb = new Float32Array(needFloats);
+        }
     }
     updateRenderData(_comp: any, _sf: any) {}
 }

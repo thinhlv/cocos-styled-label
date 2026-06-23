@@ -14,32 +14,37 @@
 // All assertions check rendered vertex Y positions (screen-local Y-up coords),
 // not internal formulas — independent of implementation details.
 
-import { BitmapFont, SpriteFrame, SpriteAtlas, Texture2D, Rect } from 'cc';
-import { StyledLabel } from '../../../assets/styled-label/styled-label';
-import { VAlign, HAlign } from '../../../assets/styled-label/styled-label.layout';
+import { BitmapFont, SpriteFrame, SpriteAtlas, Texture2D, Rect } from "cc";
+import { StyledLabel } from "../../../assets/styled-label/styled-label";
+import { HAlign, VAlign } from "../../../assets/styled-label/styled-label.layout";
 
 // ── Shared node factory ───────────────────────────────────────────────────────
 
 function makeNode(width: number, height: number) {
-    const tf = { width, height, anchorX: 0.5, anchorY: 0.5 };
-    return {
-        on: () => {}, off: () => {}, emit: () => {},
-        flagChangedVersion: 1,
-        worldMatrix: { m00:1,m01:0,m02:0,m03:0,m04:0,m05:1,m06:0,m07:0,m12:0,m13:0,m14:0,m15:1 },
-        _getUITransformComp() { return tf; },
-    };
+  const tf = { width, height, anchorX: 0.5, anchorY: 0.5 };
+  return {
+    on: () => {},
+    off: () => {},
+    emit: () => {},
+    flagChangedVersion: 1,
+    worldMatrix: { m00: 1, m01: 0, m02: 0, m03: 0, m04: 0, m05: 1, m06: 0, m07: 0, m12: 0, m13: 0, m14: 0, m15: 1 },
+    _getUITransformComp() {
+      return tf;
+    },
+  };
 }
 
 // Min Y (bottom edge) and max Y (top edge) across ALL quads in render data.
 // Handles both single-glyph and multi-glyph (multi-line) output.
 function allGlyphBounds(label: StyledLabel): { yt: number; yb: number } {
-    const data = (label as any)._renderData?.data as Array<{ y: number }>;
-    let yt = -Infinity, yb = Infinity;
-    for (const v of data) {
-        if (v.y > yt) yt = v.y;
-        if (v.y < yb) yb = v.y;
-    }
-    return { yt, yb };
+  const data = (label as any)._renderData?.data as Array<{ y: number }>;
+  let yt = -Infinity,
+    yb = Infinity;
+  for (const v of data) {
+    if (v.y > yt) yt = v.y;
+    if (v.y < yb) yb = v.y;
+  }
+  return { yt, yb };
 }
 
 // ── Scenario B ────────────────────────────────────────────────────────────────
@@ -56,62 +61,63 @@ function allGlyphBounds(label: StyledLabel): { yt: number; yb: number } {
 // Expected screen coords (Y-up, anchor=0.5, nodeH=80):
 //   nodeTop    = +40,  nodeBottom = -40,  nodeCenter = 0
 
-describe('BitmapFont Scenario B — nativeSize=48, base=38, fontSize=32, nodeH=80', () => {
-    const NODE_H_B   = 80;
-    const FONT_SIZE_B = 32;
-    const nodeTop    =  NODE_H_B / 2;   // +40
-    const nodeBottom = -NODE_H_B / 2;   // -40
+describe("BitmapFont Scenario B — nativeSize=48, base=38, fontSize=32, nodeH=80", () => {
+  const NODE_H_B = 80;
+  const FONT_SIZE_B = 32;
+  const nodeTop = NODE_H_B / 2; // +40
+  const nodeBottom = -NODE_H_B / 2; // -40
 
-    function makeFontB(): BitmapFont {
-        const font = new BitmapFont();
-        (font as any).fntConfig = {
-            commonHeight: 48,
-            fontSize:     48,
-            base:         38,
-            fontDefDictionary: {
-                32: { rect: { x:0, y:0, width:0, height:0 }, xOffset:0, yOffset:0, xAdvance:16 },
-                48: { rect: { x:0, y:0, width:36, height:50 }, xOffset:2, yOffset:4, xAdvance:40 },
-            },
-        };
-        const sf = new SpriteFrame(); sf.texture = new Texture2D();
-        (font as any).spriteFrame = sf;
-        return font;
-    }
+  function makeFontB(): BitmapFont {
+    const font = new BitmapFont();
+    (font as any).fntConfig = {
+      commonHeight: 48,
+      fontSize: 48,
+      base: 38,
+      fontDefDictionary: {
+        32: { rect: { x: 0, y: 0, width: 0, height: 0 }, xOffset: 0, yOffset: 0, xAdvance: 16 },
+        48: { rect: { x: 0, y: 0, width: 36, height: 50 }, xOffset: 2, yOffset: 4, xAdvance: 40 },
+      },
+    };
+    const sf = new SpriteFrame();
+    sf.texture = new Texture2D();
+    (font as any).spriteFrame = sf;
+    return font;
+  }
 
-    function freshB(vAlign: VAlign): StyledLabel {
-        (StyledLabel as any)._mCtx = null;
-        (StyledLabel as any)._measureCache?.clear();
-        (StyledLabel as any)._inflatedMap = null;
-        const label = new StyledLabel();
-        (label as any).node = makeNode(300, NODE_H_B);
-        (label as any)._font = makeFontB();
-        label.fontSize   = FONT_SIZE_B;
-        label.lineHeight = 0;
-        label.wordWrap   = false;
-        label.align.horizontal = HAlign.CENTER;
-        label.align.vertical   = vAlign;
-        label.onLoad();
-        label.onEnable();
-        label.string = '0';
-        (label as any)._contentDirty = true;
-        label._doUpdate();
-        return label;
-    }
+  function freshB(vAlign: VAlign): StyledLabel {
+    (StyledLabel as any)._mCtx = null;
+    (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
+    const label = new StyledLabel();
+    (label as any).node = makeNode(300, NODE_H_B);
+    (label as any)._font = makeFontB();
+    label.fontSize = FONT_SIZE_B;
+    label.lineHeight = 0;
+    label.wordWrap = false;
+    label.align.horizontal = HAlign.CENTER;
+    label.align.vertical = vAlign;
+    label.onLoad();
+    label.onEnable();
+    label.string = "0";
+    (label as any)._contentDirty = true;
+    label._doUpdate();
+    return label;
+  }
 
-    test('TOP: glyph visual top ≈ node top (within 2px)', () => {
-        const { yt } = allGlyphBounds(freshB(VAlign.TOP));
-        expect(Math.abs(yt - nodeTop)).toBeLessThan(2);
-    });
+  test("TOP: glyph visual top ≈ node top (within 2px)", () => {
+    const { yt } = allGlyphBounds(freshB(VAlign.TOP));
+    expect(Math.abs(yt - nodeTop)).toBeLessThan(2);
+  });
 
-    test('CENTER: glyph visual center ≈ node center (within 1px)', () => {
-        const { yt, yb } = allGlyphBounds(freshB(VAlign.CENTER));
-        expect(Math.abs((yt + yb) / 2)).toBeLessThan(1);
-    });
+  test("CENTER: glyph visual center ≈ node center (within 1px)", () => {
+    const { yt, yb } = allGlyphBounds(freshB(VAlign.CENTER));
+    expect(Math.abs((yt + yb) / 2)).toBeLessThan(1);
+  });
 
-    test('BOTTOM: glyph visual bottom ≈ node bottom (within 2px)', () => {
-        const { yb } = allGlyphBounds(freshB(VAlign.BOTTOM));
-        expect(Math.abs(yb - nodeBottom)).toBeLessThan(2);
-    });
+  test("BOTTOM: glyph visual bottom ≈ node bottom (within 2px)", () => {
+    const { yb } = allGlyphBounds(freshB(VAlign.BOTTOM));
+    expect(Math.abs(yb - nodeBottom)).toBeLessThan(2);
+  });
 });
 
 // ── Scenario C ────────────────────────────────────────────────────────────────
@@ -136,56 +142,57 @@ describe('BitmapFont Scenario B — nativeSize=48, base=38, fontSize=32, nodeH=8
 //   second line bottom: 6.667+24+39.333 = 70 → screen yb = −35 = −nodeH/2
 
 describe('BitmapFont Scenario C — multi-line "0<br>0", number-normal metrics, fontSize=24, nodeH=70', () => {
-    const NODE_H_C    = 70;
-    const FONT_SIZE_C = 24;
-    const nodeCenter  = 0;
-    const nodeBottom  = -NODE_H_C / 2;  // -35
+  const NODE_H_C = 70;
+  const FONT_SIZE_C = 24;
+  const nodeCenter = 0;
+  const nodeBottom = -NODE_H_C / 2; // -35
 
-    function makeFontC(): BitmapFont {
-        const font = new BitmapFont();
-        (font as any).fntConfig = {
-            commonHeight: 72,
-            fontSize:     72,
-            base:         59,
-            fontDefDictionary: {
-                32: { rect: { x:0, y:0, width:0, height:0 }, xOffset:0, yOffset:0, xAdvance:21 },
-                48: { rect: { x:0, y:0, width:80, height:119 }, xOffset:-1, yOffset:-1, xAdvance:78 },
-            },
-        };
-        const sf = new SpriteFrame(); sf.texture = new Texture2D();
-        (font as any).spriteFrame = sf;
-        return font;
-    }
+  function makeFontC(): BitmapFont {
+    const font = new BitmapFont();
+    (font as any).fntConfig = {
+      commonHeight: 72,
+      fontSize: 72,
+      base: 59,
+      fontDefDictionary: {
+        32: { rect: { x: 0, y: 0, width: 0, height: 0 }, xOffset: 0, yOffset: 0, xAdvance: 21 },
+        48: { rect: { x: 0, y: 0, width: 80, height: 119 }, xOffset: -1, yOffset: -1, xAdvance: 78 },
+      },
+    };
+    const sf = new SpriteFrame();
+    sf.texture = new Texture2D();
+    (font as any).spriteFrame = sf;
+    return font;
+  }
 
-    function freshC(vAlign: VAlign): StyledLabel {
-        (StyledLabel as any)._mCtx = null;
-        (StyledLabel as any)._measureCache?.clear();
-        (StyledLabel as any)._inflatedMap = null;
-        const label = new StyledLabel();
-        (label as any).node = makeNode(300, NODE_H_C);
-        (label as any)._font = makeFontC();
-        label.fontSize   = FONT_SIZE_C;
-        label.lineHeight = 0;
-        label.wordWrap   = false;
-        label.align.horizontal = HAlign.CENTER;
-        label.align.vertical   = vAlign;
-        label.onLoad();
-        label.onEnable();
-        label.string = '0<br>0';
-        (label as any)._contentDirty = true;
-        label._doUpdate();
-        return label;
-    }
+  function freshC(vAlign: VAlign): StyledLabel {
+    (StyledLabel as any)._mCtx = null;
+    (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
+    const label = new StyledLabel();
+    (label as any).node = makeNode(300, NODE_H_C);
+    (label as any)._font = makeFontC();
+    label.fontSize = FONT_SIZE_C;
+    label.lineHeight = 0;
+    label.wordWrap = false;
+    label.align.horizontal = HAlign.CENTER;
+    label.align.vertical = vAlign;
+    label.onLoad();
+    label.onEnable();
+    label.string = "0<br>0";
+    (label as any)._contentDirty = true;
+    label._doUpdate();
+    return label;
+  }
 
-    test('CENTER: combined visual center of both lines ≈ node center (within 1px)', () => {
-        const { yt, yb } = allGlyphBounds(freshC(VAlign.CENTER));
-        expect(Math.abs((yt + yb) / 2 - nodeCenter)).toBeLessThan(1);
-    });
+  test("CENTER: combined visual center of both lines ≈ node center (within 1px)", () => {
+    const { yt, yb } = allGlyphBounds(freshC(VAlign.CENTER));
+    expect(Math.abs((yt + yb) / 2 - nodeCenter)).toBeLessThan(1);
+  });
 
-    test('BOTTOM: bottom of last line ≈ node bottom (within 2px)', () => {
-        const { yb } = allGlyphBounds(freshC(VAlign.BOTTOM));
-        expect(Math.abs(yb - nodeBottom)).toBeLessThan(2);
-    });
+  test("BOTTOM: bottom of last line ≈ node bottom (within 2px)", () => {
+    const { yb } = allGlyphBounds(freshC(VAlign.BOTTOM));
+    expect(Math.abs(yb - nodeBottom)).toBeLessThan(2);
+  });
 });
 
 // ── Sprite inline in BitmapFont mode ─────────────────────────────────────────
@@ -200,83 +207,88 @@ describe('BitmapFont Scenario C — multi-line "0<br>0", number-normal metrics, 
 // offsetY=0.5  → canvasTopY decreases by 12  → yt increases   (shifted UP)
 // offsetY=-0.5 → canvasTopY increases by 12  → yt decreases   (shifted DOWN)
 
-describe('BitmapFont sprite inline rendering', () => {
-    const NODE_W = 300, NODE_H = 70, FONT_SIZE = 24;
+describe("BitmapFont sprite inline rendering", () => {
+  const NODE_W = 300,
+    NODE_H = 70,
+    FONT_SIZE = 24;
 
-    function makeSpriteFont(): BitmapFont {
-        const font = new BitmapFont();
-        (font as any).fntConfig = {
-            commonHeight: 72, fontSize: 72, base: 59,
-            fontDefDictionary: {
-                32: { rect: { x:0, y:0, width:0, height:0 }, xOffset:0, yOffset:0, xAdvance:21 },
-            },
-        };
-        const sf = new SpriteFrame(); sf.texture = new Texture2D();
-        (font as any).spriteFrame = sf;
-        return font;
-    }
+  function makeSpriteFont(): BitmapFont {
+    const font = new BitmapFont();
+    (font as any).fntConfig = {
+      commonHeight: 72,
+      fontSize: 72,
+      base: 59,
+      fontDefDictionary: {
+        32: { rect: { x: 0, y: 0, width: 0, height: 0 }, xOffset: 0, yOffset: 0, xAdvance: 21 },
+      },
+    };
+    const sf = new SpriteFrame();
+    sf.texture = new Texture2D();
+    (font as any).spriteFrame = sf;
+    return font;
+  }
 
-    function makeAtlas(): SpriteAtlas {
-        const atlas = new SpriteAtlas();
-        const frame = new SpriteFrame();
-        frame.texture = new Texture2D();
-        frame.rect = new Rect(0, 0, 32, 32);
-        atlas.addFrame('coin', frame);
-        return atlas;
-    }
+  function makeAtlas(): SpriteAtlas {
+    const atlas = new SpriteAtlas();
+    const frame = new SpriteFrame();
+    frame.texture = new Texture2D();
+    frame.rect = new Rect(0, 0, 32, 32);
+    atlas.addFrame("coin", frame);
+    return atlas;
+  }
 
-    function freshSprite(str: string): StyledLabel {
-        (StyledLabel as any)._mCtx = null;
-        (StyledLabel as any)._measureCache?.clear();
-        (StyledLabel as any)._inflatedMap = null;
-        const label = new StyledLabel();
-        (label as any).node = makeNode(NODE_W, NODE_H);
-        (label as any)._font = makeSpriteFont();
-        (label as any)._spriteAtlas = makeAtlas();
-        label.fontSize = FONT_SIZE;
-        label.lineHeight = 0;
-        label.wordWrap = false;
-        label.align.vertical = VAlign.TOP;
-        label.onLoad();
-        label.onEnable();
-        label.string = str;
-        (label as any)._contentDirty = true;
-        label._doUpdate();
-        return label;
-    }
+  function freshSprite(str: string): StyledLabel {
+    (StyledLabel as any)._mCtx = null;
+    (StyledLabel as any)._measureCache?.clear();
+    (StyledLabel as any)._inflatedMap = null;
+    const label = new StyledLabel();
+    (label as any).node = makeNode(NODE_W, NODE_H);
+    (label as any)._font = makeSpriteFont();
+    (label as any)._spriteAtlas = makeAtlas();
+    label.fontSize = FONT_SIZE;
+    label.lineHeight = 0;
+    label.wordWrap = false;
+    label.align.vertical = VAlign.TOP;
+    label.onLoad();
+    label.onEnable();
+    label.string = str;
+    (label as any)._contentDirty = true;
+    label._doUpdate();
+    return label;
+  }
 
-    function overlayYt(label: StyledLabel): number {
-        const data = (label as any)._spriteRenderer?.overlayRenderData?.data as Array<{ y: number }> | undefined;
-        if (!data) return NaN;
-        return Math.max(...data.map(v => v.y));
-    }
+  function overlayYt(label: StyledLabel): number {
+    const data = (label as any)._spriteRenderer?.overlayRenderData?.data as Array<{ y: number }> | undefined;
+    if (!data) return NaN;
+    return Math.max(...data.map((v) => v.y));
+  }
 
-    test('_spriteRenderer is initialized for BitmapFont', () => {
-        const label = freshSprite('<sprite=coin>');
-        expect((label as any)._spriteRenderer).not.toBeNull();
-    });
+  test("_spriteRenderer is initialized for BitmapFont", () => {
+    const label = freshSprite("<sprite=coin>");
+    expect((label as any)._spriteRenderer).not.toBeNull();
+  });
 
-    test('overlayRenderData is non-null when sprite is rendered', () => {
-        const label = freshSprite('<sprite=coin>');
-        expect((label as any)._spriteRenderer?.overlayRenderData).not.toBeNull();
-    });
+  test("overlayRenderData is non-null when sprite is rendered", () => {
+    const label = freshSprite("<sprite=coin>");
+    expect((label as any)._spriteRenderer?.overlayRenderData).not.toBeNull();
+  });
 
-    test('overlayRenderData is null when string has no sprite', () => {
-        const label = freshSprite('text');
-        expect((label as any)._spriteRenderer?.overlayRenderData).toBeNull();
-    });
+  test("overlayRenderData is null when string has no sprite", () => {
+    const label = freshSprite("text");
+    expect((label as any)._spriteRenderer?.overlayRenderData).toBeNull();
+  });
 
-    test('offsetY=0.5 shifts sprite upward (larger yt in Y-up coords)', () => {
-        const ytBase   = overlayYt(freshSprite('<sprite=coin>'));
-        const ytOffset = overlayYt(freshSprite('<sprite=coin offsetY=0.5>'));
-        expect(isNaN(ytBase)).toBe(false);
-        expect(ytOffset).toBeGreaterThan(ytBase);
-    });
+  test("offsetY=0.5 shifts sprite upward (larger yt in Y-up coords)", () => {
+    const ytBase = overlayYt(freshSprite("<sprite=coin>"));
+    const ytOffset = overlayYt(freshSprite("<sprite=coin offsetY=0.5>"));
+    expect(isNaN(ytBase)).toBe(false);
+    expect(ytOffset).toBeGreaterThan(ytBase);
+  });
 
-    test('offsetY=-0.5 shifts sprite downward (smaller yt in Y-up coords)', () => {
-        const ytBase   = overlayYt(freshSprite('<sprite=coin>'));
-        const ytOffset = overlayYt(freshSprite('<sprite=coin offsetY=-0.5>'));
-        expect(isNaN(ytBase)).toBe(false);
-        expect(ytOffset).toBeLessThan(ytBase);
-    });
+  test("offsetY=-0.5 shifts sprite downward (smaller yt in Y-up coords)", () => {
+    const ytBase = overlayYt(freshSprite("<sprite=coin>"));
+    const ytOffset = overlayYt(freshSprite("<sprite=coin offsetY=-0.5>"));
+    expect(isNaN(ytBase)).toBe(false);
+    expect(ytOffset).toBeLessThan(ytBase);
+  });
 });

@@ -1,9 +1,10 @@
-import { _decorator, UIRenderer, RenderData, Enum } from 'cc';
-import { HAlign, VAlign } from './styled-label.layout';
+import { _decorator, UIRenderer, RenderData, Enum, Color } from 'cc';
+import { GradientScope, HAlign, VAlign } from './styled-label.layout';
 import type { StyledLabel } from './styled-label';
 
-export type { IBMGlyph, IBMFntConfig, IBMQuadInfo };
-export { StyledLabelMargin, StyledLabelSpacing, StyledLabelAlign };
+export type { IBMGlyph, IBMFntConfig, IBMQuadInfo, IBMLineBounds };
+export { StyledLabelMargin, StyledLabelSpacing, StyledLabelAlign, StyledLabelGradient, StyledLabelOutline };
+// export { GradientScope };
 export { _quadAssembler, _bmAssembler };
 export { _localVertUpdate, _uvUpdate, _colorUpdate, _bmApplyNodeColor };
 
@@ -29,7 +30,11 @@ interface IBMQuadInfo {
     xl: number; xr: number; yb: number; yt: number;
     u0: number; v0: number; u1: number; v1: number;
     r: number;  g: number;  b: number;  a: number;
+    lineIndex: number;
+    isOutline?: boolean;
 }
+
+interface IBMLineBounds { left: number; right: number; top: number; bottom: number; }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -51,6 +56,28 @@ class StyledLabelSpacing {
 class StyledLabelAlign {
     @property({ type: Enum(HAlign) }) public horizontal: HAlign = HAlign.CENTER;
     @property({ type: Enum(VAlign) }) public vertical: VAlign = VAlign.CENTER;
+}
+
+Enum(GradientScope);
+
+@ccclass('StyledLabelGradient')
+class StyledLabelGradient {
+    @property public enabled: boolean = false;
+    @property({ type: Enum(GradientScope) }) public scope: GradientScope = GradientScope.Glyph;
+    @property public topLeft:     Color = new Color(255, 255, 255, 255);
+    @property public topRight:    Color = new Color(255, 255, 255, 255);
+    @property public bottomLeft:  Color = new Color(255, 255, 255, 255);
+    @property public bottomRight: Color = new Color(255, 255, 255, 255);
+}
+
+@ccclass('StyledLabelOutline')
+class StyledLabelOutline {
+    @property public enabled: boolean = false;
+    @property public thickness: number = 1;
+    @property public color: Color = new Color(0, 0, 0, 255);
+    @property public soft: boolean = false;
+    @property public offsetX: number = 0;
+    @property public offsetY: number = 0;
 }
 
 // ─── Canvas quad assembler (TTF / system font) ────────────────────────────────
@@ -206,6 +233,8 @@ function _bmWorldVertUpdate(comp: StyledLabel, chunk: any): void {
 }
 
 // Writes per-glyph style colors multiplied by node color into the vertex buffer.
+// When comp.gradient.enabled, also multiplies in per-corner color (4-corner gradient).
+// Vert order per quad: 0=BL, 1=BR, 2=TL, 3=TR.
 function _bmApplyNodeColor(comp: StyledLabel): void {
     const rd = comp.renderData as RenderData;
     if (!rd || rd.vertexCount === 0) return;
@@ -215,15 +244,85 @@ function _bmApplyNodeColor(comp: StyledLabel): void {
     const nc = comp.color;
     const nr = nc.r / 255, ng = nc.g / 255, nb = nc.b / 255, na = nc.a / 255;
     const quads = comp._bmQuads;
-    for (let q = 0; q < quads.length; q++) {
-        const qi = quads[q];
-        if (!qi) continue;
+
+    const grad = comp.gradient;
+    const gradOn = !!grad?.enabled;
+
+    const writeSolid = (q: number, qi: IBMQuadInfo) => {
         const r = (qi.r / 255) * nr, g = (qi.g / 255) * ng;
         const b = (qi.b / 255) * nb, a = (qi.a / 255) * na;
         const base = q * 4;
         for (let v = 0; v < 4; v++) {
             const o = (base + v) * stride + 5;
             vb[o] = r; vb[o + 1] = g; vb[o + 2] = b; vb[o + 3] = a;
+        }
+    };
+
+    if (!gradOn) {
+        for (let q = 0; q < quads.length; q++) {
+            const qi = quads[q];
+            if (!qi) continue;
+            writeSolid(q, qi);
+        }
+        return;
+    }
+
+    const g = grad!;
+    if (g.scope === GradientScope.Line) {
+        const lines = comp._bmLines;
+        const TL = g.topLeft, TR = g.topRight, BL = g.bottomLeft, BR = g.bottomRight;
+        for (let q = 0; q < quads.length; q++) {
+            const qi = quads[q];
+            if (!qi) continue;
+            if (qi.isOutline) { writeSolid(q, qi); continue; }
+            const line = lines[qi.lineIndex];
+            const sR = (qi.r / 255) * nr, sG = (qi.g / 255) * ng;
+            const sB = (qi.b / 255) * nb, sA = (qi.a / 255) * na;
+            const lineW = line ? line.right - line.left : 0;
+            const lineH = line ? line.top - line.bottom : 0;
+            const base = q * 4;
+            for (let v = 0; v < 4; v++) {
+                const vx = (v === 1 || v === 3) ? qi.xr : qi.xl;
+                const vy = (v === 2 || v === 3) ? qi.yt : qi.yb;
+                const u = lineW > 0 ? (vx - line.left) / lineW : 0;
+                const vv = lineH > 0 ? (line.top - vy) / lineH : 0;
+                const tr = TL.r + (TR.r - TL.r) * u;
+                const tg = TL.g + (TR.g - TL.g) * u;
+                const tb = TL.b + (TR.b - TL.b) * u;
+                const ta = TL.a + (TR.a - TL.a) * u;
+                const br = BL.r + (BR.r - BL.r) * u;
+                const bg = BL.g + (BR.g - BL.g) * u;
+                const bb = BL.b + (BR.b - BL.b) * u;
+                const ba = BL.a + (BR.a - BL.a) * u;
+                const fr = tr + (br - tr) * vv;
+                const fg = tg + (bg - tg) * vv;
+                const fb = tb + (bb - tb) * vv;
+                const fa = ta + (ba - ta) * vv;
+                const o = (base + v) * stride + 5;
+                vb[o]     = sR * (fr / 255);
+                vb[o + 1] = sG * (fg / 255);
+                vb[o + 2] = sB * (fb / 255);
+                vb[o + 3] = sA * (fa / 255);
+            }
+        }
+        return;
+    }
+
+    const corners: Color[] = [g.bottomLeft, g.bottomRight, g.topLeft, g.topRight];
+    for (let q = 0; q < quads.length; q++) {
+        const qi = quads[q];
+        if (!qi) continue;
+        if (qi.isOutline) { writeSolid(q, qi); continue; }
+        const sR = (qi.r / 255) * nr, sG = (qi.g / 255) * ng;
+        const sB = (qi.b / 255) * nb, sA = (qi.a / 255) * na;
+        const base = q * 4;
+        for (let v = 0; v < 4; v++) {
+            const c = corners[v];
+            const o = (base + v) * stride + 5;
+            vb[o]     = sR * (c.r / 255);
+            vb[o + 1] = sG * (c.g / 255);
+            vb[o + 2] = sB * (c.b / 255);
+            vb[o + 3] = sA * (c.a / 255);
         }
     }
 }
