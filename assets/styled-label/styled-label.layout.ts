@@ -7,6 +7,7 @@ export enum HAlign { LEFT = 0, CENTER = 1, RIGHT = 2 }
 export enum VAlign { TOP = 0, CENTER = 1, BOTTOM = 2 }
 export enum OverflowMode { NONE = 0, CLAMP = 1, SHRINK = 2, TRUNCATE = 3, ELLIPSIS = 4 }
 export enum TextTransform { NONE = 0, UPPERCASE = 1, LOWERCASE = 2 }
+export enum GradientScope { Glyph = 0, Line = 1 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

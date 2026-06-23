@@ -1,0 +1,249 @@
+[
+  {
+    "__type__": "cc.Prefab",
+    "_name": "styled-label-sample",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "_native": "",
+    "data": {
+      "__id__": 1
+    },
+    "optimizationPolicy": 0,
+    "persistent": false
+  },
+  {
+    "__type__": "cc.Node",
+    "_name": "styled-label-sample",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "_parent": null,
+    "_children": [],
+    "_active": true,
+    "_components": [
+      {
+        "__id__": 2
+      },
+      {
+        "__id__": 4
+      },
+      {
+        "__id__": 10
+      }
+    ],
+    "_prefab": {
+      "__id__": 12
+    },
+    "_lpos": {
+      "__type__": "cc.Vec3",
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "_lrot": {
+      "__type__": "cc.Quat",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "w": 1
+    },
+    "_lscale": {
+      "__type__": "cc.Vec3",
+      "x": 1,
+      "y": 1,
+      "z": 1
+    },
+    "_mobility": 0,
+    "_layer": 33554432,
+    "_euler": {
+      "__type__": "cc.Vec3",
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "_id": ""
+  },
+  {
+    "__type__": "cc.UITransform",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 1
+    },
+    "_enabled": true,
+    "__prefab": {
+      "__id__": 3
+    },
+    "_contentSize": {
+      "__type__": "cc.Size",
+      "width": 755,
+      "height": 1344
+    },
+    "_anchorPoint": {
+      "__type__": "cc.Vec2",
+      "x": 0.5,
+      "y": 0.5
+    },
+    "_id": ""
+  },
+  {
+    "__type__": "cc.CompPrefabInfo",
+    "fileId": "f85A1qG59JcKB069qbtoYD"
+  },
+  {
+    "__type__": "feec4RNR8hCBJn58G2SzD3w",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 1
+    },
+    "_enabled": true,
+    "__prefab": {
+      "__id__": 5
+    },
+    "_customMaterial": null,
+    "_srcBlendFactor": 2,
+    "_dstBlendFactor": 4,
+    "_color": {
+      "__type__": "cc.Color",
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "watchProps": 1,
+    "_font": null,
+    "_fontSize": 24,
+    "_lineHeightVal": 40,
+    "_textTransform": 0,
+    "_overflow": 2,
+    "_wordWrap": true,
+    "defaultColor": {
+      "__type__": "cc.Color",
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "_spriteAtlas": {
+      "__uuid__": "1358f49f-0394-4dde-9063-4412995e076c",
+      "__expectedType__": "cc.SpriteAtlas"
+    },
+    "_htmlString": "<color=#FFD700><size=40><b>STYLED LABEL</b></size></color> <color=#AAAAAA><size=18>v1.0</size></color>\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Text Styles ──</b></color>\n  <br/>\n  Normal  <b>Bold</b>  <i>Italic</i>  <u>Underline</u>  <b><i>Bold+Italic</i></b>  <b><i><u>All three</u></i></b>\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Colors ──</b></color>\n  <br/>\n  <color=#FF4444>Red</color>  <color=#44FF44>Green</color>  <color=#4488FF>Blue</color>  <color=#FFD700>Gold</color>  <color=#FF88FF>Pink</color>\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Sizes ──</b></color>\n  <br/>\n  <size=16>tiny</size>  <size=20>small</size>  <size=24>normal</size>  <size=32>large</size>  <size=40>huge</size>\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Vertical Align ──</b></color>\n  <br/>\n  <sup><size=16><color=#FFD700>$</color></size></sup><size=32>2,000</size>   <size=32>100</size><sub><size=16><color=#88FFFF>mg</color></size></sub>   H<sub><size=16>2</size></sub>O\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Sprites (Emoji 0–15) ──</b></color>\n  <br/>\n  <sprite=0><sprite=1><sprite=2><sprite=3><sprite=4><sprite=5><sprite=6><sprite=7>\n  <br/>\n  <sprite=8><sprite=9><sprite=10><sprite=11><sprite=12><sprite=13><sprite=14><sprite=15>\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Sprite with custom size ──</b></color>\n  <br/>\n  <sprite=0 size=16> small  <sprite=0 size=24> medium  <sprite=0 size=40> large\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Mixed inline ──</b></color>\n  <br/>\n  Score: <sprite=3 size=24><color=#FFD700><b>9,999</b></color>  HP: <sprite=7 size=24><color=#FF4444><b>100%</b></color>\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Click event ──</b></color>\n  <br/>\n  <color=#44AAFF><u><on click=\"openShop\" param=\"gold\">Tap here to open shop</on></u></color>\n  <br/>\n  <br/>\n  <color=#FFFFFF><b>── Entities ──</b></color>\n  <br/>",
+    "align": {
+      "__id__": 6
+    },
+    "margin": {
+      "__id__": 7
+    },
+    "spacing": {
+      "__id__": 8
+    },
+    "gradient": {
+      "__id__": 9
+    },
+    "_id": ""
+  },
+  {
+    "__type__": "cc.CompPrefabInfo",
+    "fileId": "cevfFYu7pFIIloLgcTbDFy"
+  },
+  {
+    "__type__": "StyledLabelAlign",
+    "horizontal": 1,
+    "vertical": 1
+  },
+  {
+    "__type__": "StyledLabelMargin",
+    "left": 0,
+    "right": 0,
+    "top": 0,
+    "bottom": 0
+  },
+  {
+    "__type__": "StyledLabelSpacing",
+    "line": 0,
+    "segment": 0
+  },
+  {
+    "__type__": "StyledLabelGradient",
+    "enabled": false,
+    "scope": 0,
+    "topLeft": {
+      "__type__": "cc.Color",
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "topRight": {
+      "__type__": "cc.Color",
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "bottomLeft": {
+      "__type__": "cc.Color",
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "bottomRight": {
+      "__type__": "cc.Color",
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    }
+  },
+  {
+    "__type__": "cc.Widget",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 1
+    },
+    "_enabled": true,
+    "__prefab": {
+      "__id__": 11
+    },
+    "_alignFlags": 45,
+    "_target": null,
+    "_left": 0,
+    "_right": 0,
+    "_top": 0,
+    "_bottom": 0,
+    "_horizontalCenter": 0,
+    "_verticalCenter": 0,
+    "_isAbsLeft": true,
+    "_isAbsRight": true,
+    "_isAbsTop": true,
+    "_isAbsBottom": true,
+    "_isAbsHorizontalCenter": true,
+    "_isAbsVerticalCenter": true,
+    "_originalWidth": 1064.509,
+    "_originalHeight": 626.554,
+    "_alignMode": 2,
+    "_lockFlags": 0,
+    "_id": ""
+  },
+  {
+    "__type__": "cc.CompPrefabInfo",
+    "fileId": "bfdfXN2UpI8LXbaa6vuDoK"
+  },
+  {
+    "__type__": "cc.PrefabInfo",
+    "root": {
+      "__id__": 1
+    },
+    "asset": {
+      "__id__": 0
+    },
+    "fileId": "54J1/hQ11NWIJJAkllhS7u",
+    "targetOverrides": null
+  }
+]

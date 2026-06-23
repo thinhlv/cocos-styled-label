@@ -98,7 +98,7 @@ export class NativeSpriteRenderer implements ISpriteRenderer {
         const u0 = r.x / texW, u1 = (r.x + r.width) / texW;
         const v0 = r.y / texH, v1 = (r.y + r.height) / texH;
 
-        this._quads.push({ xl, xr, yb, yt, u0, v0, u1, v1, r: 255, g: 255, b: 255, a: 255 });
+        this._quads.push({ xl, xr, yb, yt, u0, v0, u1, v1, r: 255, g: 255, b: 255, a: 255, lineIndex: -1 });
         if (!this._atlasFrame) this._atlasFrame = frame;
     }
 
