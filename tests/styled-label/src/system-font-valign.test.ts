@@ -1,17 +1,8 @@
-// Independent test: system font VAlign CENTER / BOTTOM alignment.
+// System font vAlign — same fixed-ratio contract as TTF.
 //
-// Problem: after the TTF-ascent fix (commit 216421c), _fontAscent() now prefers
-// actualBoundingBoxAscent over fontBoundingBoxAscent. For TTF fonts with inflated
-// declared ascent (fba > fontSize) this is correct. But for system fonts (Arial-like)
-// fontBoundingBoxAscent ≈ 0.85× is the proper line-box ascent, while
-// actualBoundingBoxAscent ≈ 0.72× is only the pixel height of the sample string.
-// Using 0.72× shifts the baseline up ~0.13×fontSize ≈ 1/8 char height, so
-// CENTER/BOTTOM text appears slightly above the expected position.
-//
-// Standard Cocos label behaviour:
-//   baseline = lineTop + fontBoundingBoxAscent
-//
-// This test verifies that our label matches that behaviour for system fonts.
+// Cocos Label uses a constant: baseline = lineTop + fontSize * (1 - BASELINE_RATIO/2)
+// independent of font metrics. This test verifies the system-font path produces
+// the same baseline regardless of what fba/aba the canvas reports.
 
 import { StyledLabel } from "../../../assets/styled-label/styled-label";
 import {
@@ -84,7 +75,6 @@ function makeNode(width: number, height: number) {
 function freshLabel(vAlign: VAlign): StyledLabel {
   (StyledLabel as any)._mCtx = null;
   (StyledLabel as any)._measureCache?.clear();
-  (StyledLabel as any)._inflatedMap = null;
   const label = new StyledLabel();
   (label as any).node = makeNode(NODE_W, NODE_H);
   label.string = "1,200,000";
@@ -103,32 +93,27 @@ function freshLabel(vAlign: VAlign): StyledLabel {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-// Expected baseline position that matches standard Cocos label:
-//   lineTop = vOffset (computed from alignH = fontSize = lineH)
-//   baseline = lineTop + fontBoundingBoxAscent
-const fba = FONT_SIZE * SYS_FBA_RATIO; // = 34
+// Fixed-ratio baseline. The captured Y is the CANVAS Y, which is offset above
+// the node top by TOP_PAD so ascenders/diacritics never clip.
+const BASELINE_RATIO = 0.26;
+const FIXED_ASCENT = FONT_SIZE * (1 - BASELINE_RATIO / 2); // 0.87 * 40 = 34.8
+const TOP_PAD = Math.ceil(FONT_SIZE * (BASELINE_RATIO / 2)); // 6
 
-describe("system font vAlign — baseline matches standard label (fontSize = lineHeight)", () => {
-  test("BOTTOM: baseline = (nodeH - fontSize) + fontBoundingBoxAscent", () => {
+describe("system font vAlign — fixed-ratio baseline (independent of font metrics)", () => {
+  test("BOTTOM: baseline = (nodeH - fontSize) + TOP_PAD + 0.87 * fontSize", () => {
     freshLabel(VAlign.BOTTOM);
-    // lineTop = nodeH - alignH = nodeH - fontSize
-    const expectedBaseline = NODE_H - FONT_SIZE + fba; // 160 + 34 = 194
+    const expectedBaseline = (NODE_H - FONT_SIZE) + TOP_PAD + FIXED_ASCENT;
     expect(capturedDrawY).toBeCloseTo(expectedBaseline, 0);
   });
 
-  test("CENTER: baseline = (nodeH - fontSize)/2 + fontBoundingBoxAscent", () => {
+  test("CENTER: baseline = (nodeH - fontSize)/2 + TOP_PAD + 0.87 * fontSize", () => {
     freshLabel(VAlign.CENTER);
-    // lineTop = (nodeH - alignH)/2 = (nodeH - fontSize)/2
-    const expectedBaseline = (NODE_H - FONT_SIZE) / 2 + fba; // 80 + 34 = 114
+    const expectedBaseline = (NODE_H - FONT_SIZE) / 2 + TOP_PAD + FIXED_ASCENT;
     expect(capturedDrawY).toBeCloseTo(expectedBaseline, 0);
   });
 
-  test("TOP: baseline = textPad + fontBoundingBoxAscent", () => {
+  test("TOP: baseline = TOP_PAD + 0.87 * fontSize", () => {
     freshLabel(VAlign.TOP);
-    // VAlign.TOP adds textPad = ceil(fontSize * 0.15) for diacritics above baseline.
-    // lineY = 0 + 0 + textPad, then baseline = lineY + fontBoundingBoxAscent.
-    const textPad = Math.ceil(FONT_SIZE * 0.15);
-    const expectedBaseline = textPad + fba;
-    expect(capturedDrawY).toBeCloseTo(expectedBaseline, 0);
+    expect(capturedDrawY).toBeCloseTo(TOP_PAD + FIXED_ASCENT, 0);
   });
 });

@@ -66,7 +66,7 @@ export class StyledLabel extends UIRenderer {
         if (this._font === v) return;
         this._font = v;
         StyledLabel._measureCache.clear();
-        StyledLabel._inflatedMap = null;
+        this._lastLayout = null;
         if (!EDITOR) { this._cFontUuid = v?.uuid ?? ''; this._contentDirty = true; this._flushAssembler(); this.markForUpdateRenderData(true); }
     }
 
@@ -163,6 +163,7 @@ export class StyledLabel extends UIRenderer {
         this._prevW = 0;
         this._prevH = 0;
         this._contentDirty = true;
+        this._lastLayout = null;
         this._flushAssembler();
         this.markForUpdateRenderData(true);
     }
@@ -194,6 +195,10 @@ export class StyledLabel extends UIRenderer {
     // ── Shared state ──────────────────────────────────────────────────────────
 
     private _contentDirty  = true;
+    // Paint-only dirty: Color / Gradient / Outline changed but layout unchanged.
+    // Lets _doUpdate skip _buildLayout and (BM) _buildBMQuads.
+    private _paintDirty    = false;
+    private _lastLayout: ILayoutResult | null = null;
     private _adjustingSize = false;
     private _resizeHooked  = false;
     private _editorW = 0;
@@ -236,10 +241,10 @@ export class StyledLabel extends UIRenderer {
         return StyledLabel._mCtx;
     }
     private static _measureCache = new Map<string, number>();
-    private static readonly _MEASURE_CACHE_MAX = 512;
-    // Per-font-family classification: true = inflated (fba > fontSize at reference size).
-    // Cached once so per-size baseline doesn't oscillate for fonts with fba/size ratio ≈ 1.
-    private static _inflatedMap: Map<string, boolean> | null = null;
+    private static readonly _MEASURE_CACHE_MAX = 2048;
+    // Fixed-ratio baseline model — matches Cocos Label (text-utils.BASELINE_RATIO).
+    // Reserves BASELINE_RATIO/2 above ascent and BASELINE_RATIO/2 below descent.
+    private static readonly BASELINE_RATIO = 0.26;
     private static _bmOutlineWarned = false;
 
     // ── Property accessors ────────────────────────────────────────────────────
@@ -277,6 +282,7 @@ export class StyledLabel extends UIRenderer {
         }
         super.onEnable?.();
         this._contentDirty = true;
+        this._lastLayout = null;
         this._prevW = 0;
         this._prevH = 0;
         this.markForUpdateRenderData(true);
@@ -305,6 +311,7 @@ export class StyledLabel extends UIRenderer {
     private _onNodeSizeChanged(): void {
         if (this._adjustingSize) return;
         this._contentDirty = true;
+        this._lastLayout = null;
         this.markForUpdateRenderData(true);
     }
 
@@ -317,6 +324,7 @@ export class StyledLabel extends UIRenderer {
             this._spriteRenderer = null;
         }
         this._contentDirty = true;
+        this._lastLayout = null;
         this._prevW = 0;
         this._prevH = 0;
         this.markForUpdateRenderData(true);
@@ -324,10 +332,14 @@ export class StyledLabel extends UIRenderer {
 
     update(_dt: number): void {
         const flags = EDITOR ? ~0 : this.watchProps;
-        if (flags !== 0 && this._checkDirty(flags)) {
-            this._updateCache(flags);
-            this._contentDirty = true;
-            if (EDITOR) { this.reload = true; } else { this.markForUpdateRenderData(true); }
+        if (flags !== 0) {
+            const kind = this._checkDirty(flags);
+            if (kind > 0) {
+                this._updateCache(flags);
+                if (kind === 2) this._contentDirty = true;
+                else            this._paintDirty   = true;
+                if (EDITOR) { this.reload = true; } else { this.markForUpdateRenderData(true); }
+            }
         }
         if (EDITOR) {
             const tf = (this.node as any)._getUITransformComp?.();
@@ -417,6 +429,10 @@ export class StyledLabel extends UIRenderer {
                 const reqH = Math.max(minH, Math.ceil(contentH + this.marginTop + this.marginBottom));
                 if (Math.ceil(tf.height) !== reqH) { this._adjustingSize = true; tf.height = reqH; this._adjustingSize = false; h = reqH; cachedLayout = null; }
             }
+        } else if (!this._contentDirty && this._paintDirty && this._lastLayout) {
+            // Paint-only change: layout unchanged from last paint. Reuse cached layout to
+            // skip HTML parse + tokenize + measureText + line-break + overflow handling.
+            cachedLayout = this._lastLayout;
         }
 
         if (this.font instanceof BitmapFont) { this._doBMUpdate(w, h, cachedLayout); return; }
@@ -426,10 +442,11 @@ export class StyledLabel extends UIRenderer {
             if (!this._offCanvas || !this._offCtx || !this._offTex || !this._offFrame) return;
         }
 
-        // Base text diacritic padding (only for TOP vAlign).
+        // Symmetric ascender/diacritic padding for every vAlign, mirroring the
+        // BASELINE_RATIO/2 space Cocos Label reserves above the topmost glyph.
         const textPad = this.vAlign === VAlign.TOP
-            ? Math.max(0, Math.ceil(this.fontSize * 0.15) - this.marginTop)
-            : 0;
+            ? Math.max(0, Math.ceil(this.fontSize * (StyledLabel.BASELINE_RATIO / 2)) - this.marginTop)
+            : Math.ceil(this.fontSize * (StyledLabel.BASELINE_RATIO / 2));
         // Extra canvas space needed so sprites whose height > fontAscent don't clip
         // above the canvas. For each sprite on the first line: required gap =
         // (sprH - lineAscent). Subtract vOffset since CENTER/BOTTOM alignment
@@ -453,7 +470,7 @@ export class StyledLabel extends UIRenderer {
         const canvasH = h + diacriticPad;
 
         const sizeChanged = w !== this._prevW || canvasH !== this._prevH;
-        const needDraw = this._contentDirty || sizeChanged || !!force;
+        const needDraw = this._contentDirty || this._paintDirty || sizeChanged || !!force;
 
         if (sizeChanged || !this._offTex.getGFXTexture()) {
             this._prevW = w;
@@ -485,12 +502,19 @@ export class StyledLabel extends UIRenderer {
         if (needDraw) {
             this._offCtx.clearRect(0, 0, w, canvasH);
             this._spriteRenderer?.beginFrame(tf.anchorX, tf.anchorY, w, canvasH);
-            if (this._htmlString) this._drawContent(w, h, diacriticPad, cachedLayout);
+            if (this._htmlString) {
+                if (!cachedLayout) cachedLayout = this._buildLayout(w, h);
+                this._drawContent(w, h, diacriticPad, cachedLayout);
+                this._lastLayout = cachedLayout;
+            } else {
+                this._lastLayout = null;
+            }
             this._offTex.uploadData(this._offCanvas);
             _uvUpdate(this);
             _colorUpdate(this);
             this._spriteRenderer?.endFrame();
             this._contentDirty = false;
+            this._paintDirty = false;
         }
 
         const rd = this._renderData as RenderData;
@@ -536,29 +560,32 @@ export class StyledLabel extends UIRenderer {
 
     // ── Private: dirty detection ──────────────────────────────────────────────
 
-    private _checkDirty(flags: number): boolean {
-        if (flags & WatchProp.Font       && (this._font?.uuid ?? '') !== this._cFontUuid)  return true;
-        if (flags & WatchProp.FontSize   && this._fontSize           !== this._cFontSize)  return true;
-        if (flags & WatchProp.LineHeight && this._lineHeightVal      !== this._cLineHeight) return true;
-        if (flags & WatchProp.Color) {
-            const c = this.defaultColor;
-            if (c.r !== this._cColorR || c.g !== this._cColorG || c.b !== this._cColorB || c.a !== this._cColorA) return true;
-        }
+    // Returns 0=clean, 1=paint-only (color/gradient/outline), 2=content (layout-affecting).
+    // Content implies paint; caller treats 2 as both flags set.
+    private _checkDirty(flags: number): number {
+        let result = 0;
+        if (flags & WatchProp.Font       && (this._font?.uuid ?? '') !== this._cFontUuid)  return 2;
+        if (flags & WatchProp.FontSize   && this._fontSize           !== this._cFontSize)  return 2;
+        if (flags & WatchProp.LineHeight && this._lineHeightVal      !== this._cLineHeight) return 2;
         if (flags & WatchProp.Align) {
-            if ((this.align?.horizontal ?? 0) !== this._cAlignH || (this.align?.vertical ?? 0) !== this._cAlignV) return true;
+            if ((this.align?.horizontal ?? 0) !== this._cAlignH || (this.align?.vertical ?? 0) !== this._cAlignV) return 2;
         }
         if (flags & WatchProp.Margin) {
             if (this.marginLeft !== this._cMarginL || this.marginRight !== this._cMarginR ||
-                this.marginTop  !== this._cMarginT || this.marginBottom !== this._cMarginB) return true;
+                this.marginTop  !== this._cMarginT || this.marginBottom !== this._cMarginB) return 2;
         }
-        if (flags & WatchProp.Spacing    && this.lineSpacing          !== this._cSpacingLine) return true;
-        if (flags & WatchProp.Overflow   && this._overflow            !== this._cOverflow)    return true;
-        if (flags & WatchProp.WordWrap   && this._wordWrap            !== this._cWordWrap)    return true;
-        if (flags & WatchProp.Transform  && this._textTransform       !== this._cTransform)   return true;
-        if (flags & WatchProp.SpriteAtlas && (this._spriteAtlas?.uuid ?? '') !== this._cAtlasUuid) return true;
-        if (flags & WatchProp.Gradient && this._gradientChanged()) return true;
-        if (flags & WatchProp.Outline && this._outlineChanged()) return true;
-        return false;
+        if (flags & WatchProp.Spacing    && this.lineSpacing          !== this._cSpacingLine) return 2;
+        if (flags & WatchProp.Overflow   && this._overflow            !== this._cOverflow)    return 2;
+        if (flags & WatchProp.WordWrap   && this._wordWrap            !== this._cWordWrap)    return 2;
+        if (flags & WatchProp.Transform  && this._textTransform       !== this._cTransform)   return 2;
+        if (flags & WatchProp.SpriteAtlas && (this._spriteAtlas?.uuid ?? '') !== this._cAtlasUuid) return 2;
+        if (flags & WatchProp.Color) {
+            const c = this.defaultColor;
+            if (c.r !== this._cColorR || c.g !== this._cColorG || c.b !== this._cColorB || c.a !== this._cColorA) result = 1;
+        }
+        if (flags & WatchProp.Gradient && this._gradientChanged()) result = 1;
+        if (flags & WatchProp.Outline && this._outlineChanged()) result = 1;
+        return result;
     }
 
     private _outlineChanged(): boolean {
@@ -645,14 +672,20 @@ export class StyledLabel extends UIRenderer {
     private _measureTTF(text: string, size: number, bold: boolean, italic: boolean): number {
         const family = this._getFontFamily();
         const key = `${family}\0${bold ? 1 : 0}${italic ? 1 : 0}${size}\0${text}`;
-        const cached = StyledLabel._measureCache.get(key);
-        if (cached !== undefined) return cached;
+        const cache = StyledLabel._measureCache;
+        const cached = cache.get(key);
+        if (cached !== undefined) {
+            // LRU promote-on-hit: re-insert moves key to back of Map iteration order.
+            cache.delete(key);
+            cache.set(key, cached);
+            return cached;
+        }
         const ctx = StyledLabel._getMCtx();
         ctx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
         const w = ctx.measureText(text).width;
-        if (StyledLabel._measureCache.size >= StyledLabel._MEASURE_CACHE_MAX)
-            StyledLabel._measureCache.delete(StyledLabel._measureCache.keys().next().value!);
-        StyledLabel._measureCache.set(key, w);
+        if (cache.size >= StyledLabel._MEASURE_CACHE_MAX)
+            cache.delete(cache.keys().next().value!);
+        cache.set(key, w);
         return w;
     }
 
@@ -669,40 +702,12 @@ export class StyledLabel extends UIRenderer {
         return w;
     }
 
-    private _isFontInflated(family: string): boolean {
-        if (!StyledLabel._inflatedMap) StyledLabel._inflatedMap = new Map();
-        const cached = StyledLabel._inflatedMap.get(family);
-        if (cached !== undefined) return cached;
-        // Measure at a fixed reference size once to classify the font.
-        const refSize = 100;
-        const ctx = StyledLabel._getMCtx();
-        ctx.font = `${refSize}px "${family}"`;
-        ctx.textBaseline = 'alphabetic';
-        const m = ctx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
-        const fba = (m as any).fontBoundingBoxAscent as number | undefined;
-        const inflated = fba !== undefined && fba > refSize;
-        StyledLabel._inflatedMap.set(family, inflated);
-        return inflated;
-    }
-
-    private _fontAscent(size: number, bold = false, italic = false): number {
-        const family = this._getFontFamily();
-        const key = `fa\0${family}\0${bold ? 1 : 0}${italic ? 1 : 0}${size}`;
-        const hit = StyledLabel._measureCache.get(key);
-        if (hit !== undefined) return hit;
-        const ctx = StyledLabel._getMCtx();
-        ctx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
-        ctx.textBaseline = 'alphabetic';
-        const m = ctx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
-        const fba = (m as any).fontBoundingBoxAscent as number | undefined;
-        // Cached per-font classification ensures the same font always uses the same
-        // formula regardless of size — no baseline oscillation for fonts with fba/size ratio ≈ 1.
-        const isInflated = fba !== undefined ? this._isFontInflated(family) : true;
-        const v = isInflated ? (m.actualBoundingBoxAscent ?? size * 0.8) : fba!;
-        if (StyledLabel._measureCache.size >= StyledLabel._MEASURE_CACHE_MAX)
-            StyledLabel._measureCache.delete(StyledLabel._measureCache.keys().next().value!);
-        StyledLabel._measureCache.set(key, v);
-        return v;
+    // Distance from line-top to alphabetic baseline. Fixed ratio matches Cocos Label
+    // (text-processing._calculateFillTextStartPosition): baseline = size * (1 - BASELINE_RATIO/2).
+    // Independent of TextMetrics — `ctx.textBaseline='alphabetic'` makes the font itself
+    // place glyphs relative to this Y, so per-font measurement is not needed.
+    private _fontAscent(size: number, _bold = false, _italic = false): number {
+        return size * (1 - StyledLabel.BASELINE_RATIO / 2);
     }
 
     private _lineHeight(size: number, scale = 1): number {
@@ -764,7 +769,16 @@ export class StyledLabel extends UIRenderer {
         const ax = tf.anchorX, ay = tf.anchorY;
 
         const sizeChanged = w !== this._prevW || h !== this._prevH;
-        if (!this._contentDirty && !sizeChanged) {
+        if (!this._contentDirty && !this._paintDirty && !sizeChanged) {
+            const rd = this._renderData as RenderData;
+            if (rd) rd.updateRenderData(this, sf);
+            return;
+        }
+        // Paint-only fast path: gradient/color changed but layout unchanged. Rewrite
+        // vertex colors in place; skip quad rebuild + index buffer + position writes.
+        if (!this._contentDirty && !sizeChanged && this._paintDirty && this._bmQuads.length > 0) {
+            _bmApplyNodeColor(this);
+            this._paintDirty = false;
             const rd = this._renderData as RenderData;
             if (rd) rd.updateRenderData(this, sf);
             return;
@@ -789,6 +803,7 @@ export class StyledLabel extends UIRenderer {
         this._spriteRenderer.endFrame();
         console.log(`[StyledLabel BM] endFrame overlay=${this._spriteRenderer.overlayRenderData ? 'yes' : 'no'}`);
         this._contentDirty = false;
+        this._paintDirty = false;
 
         const vCount = this._bmQuads.length * 4;
         const iCount = this._bmQuads.length * 6;
@@ -1002,6 +1017,8 @@ export class StyledLabel extends UIRenderer {
         const family = this._getFontFamily();
         const ml = this.marginLeft, mt = this.marginTop;
         let lineY = mt + vOffset + topPad;
+        const dc = this.defaultColor;
+        const defaultColorCss = `rgba(${dc.r},${dc.g},${dc.b},${dc.a / 255})`;
 
         const out = this.outline;
         const outOn = !!out?.enabled && out!.thickness > 0;
@@ -1070,13 +1087,12 @@ export class StyledLabel extends UIRenderer {
                 const rawColor = word.style?.color;
                 const colorStr = rawColor
                     ? (rawColor.startsWith('#') ? rawColor : `#${rawColor}`)
-                    : `rgba(${this.defaultColor.r},${this.defaultColor.g},${this.defaultColor.b},${this.defaultColor.a / 255})`;
+                    : defaultColorCss;
 
                 const fontStr = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px "${family}"`;
                 ctx.font = fontStr;
                 if (outOn && word.text.length > 0) {
                     ctx.save();
-                    ctx.font = fontStr;
                     const ox = out!.offsetX;
                     const oy = out!.offsetY;
                     if (out!.soft) {

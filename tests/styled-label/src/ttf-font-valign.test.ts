@@ -1,21 +1,14 @@
-// TTF font vAlign — comprehensive scenarios for _fontAscent() selection logic.
+// TTF font vAlign — fixed-ratio baseline contract.
 //
-// Fix invariant (styled-label.ts _fontAscent):
-//   fba ≤ fontSize  →  use fontBoundingBoxAscent  (normal / system font)
-//   fba > fontSize  →  use actualBoundingBoxAscent (inflated TTF: OpenSans-Bold etc.)
-//   fba undefined   →  use actualBoundingBoxAscent (platform fallback)
+// Contract: baseline Y = lineTop + fontSize * (1 - BASELINE_RATIO/2)
+//                      = lineTop + fontSize * 0.87
+// This is independent of the font's reported TextMetrics — the canvas's
+// `textBaseline = 'alphabetic'` makes the font itself place glyphs relative
+// to Y, so per-font fba/aba measurement is not needed and not used.
 //
-// Test strategy: capture the baseline Y from ctx.fillText, then verify:
-//   baseline == lineTop + expectedAscent  (within 0.5 px)
-// where lineTop is derived from the vAlign formula and expectedAscent is
-// whatever value the fix should have selected for that font scenario.
-//
-// Scenarios covered:
-//   A  Normal TTF      fba=0.90× ≤ size  → uses fba
-//   B  Boundary        fba=1.00× = size  → uses fba (≤ is inclusive)
-//   C  Just over       fba=1.01× > size  → uses aba
-//   D  Inflated TTF    fba=1.07× > size  → uses aba  (OpenSans-Bold style)
-//   E  No fba          fba=undefined     → uses aba  (platform without the metric)
+// The 5 scenarios exercise the full range of (fba, aba) values that previously
+// caused baseline drift (commit 216421c heuristic). All five MUST produce the
+// same baseline Y — that is exactly the property the fix delivers.
 
 import { StyledLabel } from "../../../assets/styled-label/styled-label";
 import {
@@ -27,7 +20,6 @@ import {
 // ── Configurable canvas mock ──────────────────────────────────────────────────
 
 let capturedDrawY = 0;
-// Per-test font metric ratios (relative to fontSize extracted from ctx.font).
 let mockFbaRatio: number | undefined = 0.85;
 let mockAbaRatio = 0.72;
 
@@ -63,18 +55,22 @@ const mockCtxTTF = {
   createElement: (_tag: string) => ({ width: 1, height: 1, getContext: () => mockCtxTTF }),
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const FONT_SIZE = 40;
-const LINE_HEIGHT = 40; // = fontSize; no leading — the typical production case
+const LINE_HEIGHT = 40;
 const NODE_W = 300;
 const NODE_H = 200;
 
-// For single line, fontSize=lineHeight:
-//   lineTop(BOTTOM)  = NODE_H - FONT_SIZE = 160
-//   lineTop(CENTER)  = (NODE_H - FONT_SIZE) / 2 = 80
+const BASELINE_RATIO = 0.26;
+const FIXED_ASCENT = FONT_SIZE * (1 - BASELINE_RATIO / 2); // 0.87 * 40 = 34.8
+
+// Single line + lineH=fontSize: alignH = fontSize, so
 const LINE_TOP_BOTTOM = NODE_H - FONT_SIZE; // 160
 const LINE_TOP_CENTER = (NODE_H - FONT_SIZE) / 2; // 80
+const TOP_PAD = Math.ceil(FONT_SIZE * (BASELINE_RATIO / 2)); // 6
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeNode() {
   const tf = { width: NODE_W, height: NODE_H, anchorX: 0.5, anchorY: 0.5 };
@@ -93,7 +89,6 @@ function makeNode() {
 function freshLabel(vAlign: VAlign): void {
   (StyledLabel as any)._mCtx = null;
   (StyledLabel as any)._measureCache?.clear();
-  (StyledLabel as any)._inflatedMap = null;
   capturedDrawY = 0;
 
   const label = new StyledLabel();
@@ -110,118 +105,50 @@ function freshLabel(vAlign: VAlign): void {
   label._doUpdate();
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 beforeEach(() => {
   (StyledLabel as any)._mCtx = null;
   (StyledLabel as any)._measureCache?.clear();
-  (StyledLabel as any)._inflatedMap = null;
   capturedDrawY = 0;
 });
 
-// ── Scenario A: Normal TTF (fba=0.90× ≤ size) ────────────────────────────────
-// A typical custom TTF with well-declared metrics. Fix should use fba.
+// ── Parametrised contract test ────────────────────────────────────────────────
+//
+// Five font-metric profiles that previously selected DIFFERENT ascents under
+// the old heuristic. The new fixed-ratio model produces the SAME baseline Y
+// for all of them — that's the invariant we need to prove.
 
-describe("Scenario A — Normal TTF (fba=0.90×, aba=0.72×) → uses fba", () => {
+const SCENARIOS: Array<{ name: string; fba: number | undefined; aba: number }> = [
+  { name: "A — normal TTF (fba=0.90×, aba=0.72×)", fba: 0.9, aba: 0.72 },
+  { name: "B — boundary (fba=1.00×, aba=0.80×)", fba: 1.0, aba: 0.8 },
+  { name: "C — just-inflated (fba=1.01×, aba=0.80×)", fba: 1.01, aba: 0.8 },
+  { name: "D — inflated (fba=1.07×, aba=0.73×)", fba: 1.07, aba: 0.73 },
+  { name: "E — no fba (undefined, aba=0.73×)", fba: undefined, aba: 0.73 },
+];
+
+describe.each(SCENARIOS)("$name → fixed baseline = lineTop + 0.87 * fontSize", ({ fba, aba }) => {
   beforeEach(() => {
-    mockFbaRatio = 0.9;
-    mockAbaRatio = 0.72;
+    mockFbaRatio = fba;
+    mockAbaRatio = aba;
   });
-  const expectedAscent = FONT_SIZE * 0.9; // 36
 
-  test("BOTTOM: baseline = lineTop + fba", () => {
+  // Captured Y is the CANVAS Y. The canvas is grown by TOP_PAD upward so
+  // diacritics/ascenders don't clip — the quad mapping shifts the canvas
+  // origin above the node top by TOP_PAD, so canvas-Y for any vAlign =
+  // node-relative lineTop + TOP_PAD + FIXED_ASCENT. World position is
+  // unaffected by TOP_PAD because the quad height grows correspondingly.
+
+  test("BOTTOM: baseline independent of font metrics", () => {
     freshLabel(VAlign.BOTTOM);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_BOTTOM + expectedAscent, 0);
+    expect(capturedDrawY).toBeCloseTo(LINE_TOP_BOTTOM + TOP_PAD + FIXED_ASCENT, 0);
   });
 
-  test("CENTER: baseline = lineTop + fba", () => {
+  test("CENTER: baseline independent of font metrics", () => {
     freshLabel(VAlign.CENTER);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_CENTER + expectedAscent, 0);
-  });
-});
-
-// ── Scenario B: Boundary (fba=1.00× = size) ───────────────────────────────────
-// fba exactly equals fontSize — the condition is ≤, so fba should still be used.
-
-describe("Scenario B — Boundary TTF (fba=1.00×, aba=0.80×) → uses fba", () => {
-  beforeEach(() => {
-    mockFbaRatio = 1.0;
-    mockAbaRatio = 0.8;
-  });
-  const expectedAscent = FONT_SIZE * 1.0; // 40
-
-  test("BOTTOM: baseline = lineTop + fba (boundary fba=fontSize)", () => {
-    freshLabel(VAlign.BOTTOM);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_BOTTOM + expectedAscent, 0);
+    expect(capturedDrawY).toBeCloseTo(LINE_TOP_CENTER + TOP_PAD + FIXED_ASCENT, 0);
   });
 
-  test("CENTER: baseline = lineTop + fba (boundary fba=fontSize)", () => {
-    freshLabel(VAlign.CENTER);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_CENTER + expectedAscent, 0);
-  });
-});
-
-// ── Scenario C: Just over boundary (fba=1.01× > size) ─────────────────────────
-// Barely inflated — fix falls back to aba.
-
-describe("Scenario C — Just-inflated TTF (fba=1.01×, aba=0.80×) → uses aba", () => {
-  beforeEach(() => {
-    mockFbaRatio = 1.01;
-    mockAbaRatio = 0.8;
-  });
-  const expectedAscent = FONT_SIZE * 0.8; // 32 (aba)
-
-  test("BOTTOM: baseline = lineTop + aba (fba just above threshold)", () => {
-    freshLabel(VAlign.BOTTOM);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_BOTTOM + expectedAscent, 0);
-  });
-
-  test("CENTER: baseline = lineTop + aba (fba just above threshold)", () => {
-    freshLabel(VAlign.CENTER);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_CENTER + expectedAscent, 0);
-  });
-});
-
-// ── Scenario D: Inflated TTF (fba=1.07× — OpenSans-Bold style) ────────────────
-// fba > size: declared ascent exceeds the em-square. Fix must use aba.
-// This is the original bug that commit 216421c fixed — verify it stays fixed.
-
-describe("Scenario D — Inflated TTF (fba=1.07×, aba=0.73×) → uses aba", () => {
-  beforeEach(() => {
-    mockFbaRatio = 1.07;
-    mockAbaRatio = 0.73;
-  });
-  const expectedAscent = FONT_SIZE * 0.73; // 29.2 (aba)
-
-  test("BOTTOM: baseline = lineTop + aba (inflated fba rejected)", () => {
-    freshLabel(VAlign.BOTTOM);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_BOTTOM + expectedAscent, 0);
-  });
-
-  test("CENTER: baseline = lineTop + aba (inflated fba rejected)", () => {
-    freshLabel(VAlign.CENTER);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_CENTER + expectedAscent, 0);
-  });
-});
-
-// ── Scenario E: No fontBoundingBoxAscent (platform fallback) ──────────────────
-// Some environments (older WebGL contexts) don't provide fontBoundingBoxAscent.
-// Fix must fall back to actualBoundingBoxAscent.
-
-describe("Scenario E — No fba (undefined, aba=0.73×) → uses aba", () => {
-  beforeEach(() => {
-    mockFbaRatio = undefined;
-    mockAbaRatio = 0.73;
-  });
-  const expectedAscent = FONT_SIZE * 0.73; // 29.2 (aba)
-
-  test("BOTTOM: baseline = lineTop + aba (fba unavailable)", () => {
-    freshLabel(VAlign.BOTTOM);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_BOTTOM + expectedAscent, 0);
-  });
-
-  test("CENTER: baseline = lineTop + aba (fba unavailable)", () => {
-    freshLabel(VAlign.CENTER);
-    expect(capturedDrawY).toBeCloseTo(LINE_TOP_CENTER + expectedAscent, 0);
+  test("TOP: baseline = topPad + 0.87 * fontSize", () => {
+    freshLabel(VAlign.TOP);
+    expect(capturedDrawY).toBeCloseTo(TOP_PAD + FIXED_ASCENT, 0);
   });
 });

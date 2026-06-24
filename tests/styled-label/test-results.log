@@ -4,30 +4,30 @@
 
 PASS src/native-sprite-renderer.test.ts
 PASS src/html-parser.test.ts
-PASS src/layout.test.ts
-PASS src/outline-ttf.test.ts
-PASS src/styled-label-render.test.ts
-PASS src/gradient-ttf-underline.test.ts
-PASS src/gradient-line-ttf.test.ts
-PASS src/ttf-font-valign.test.ts
 PASS src/gradient-ttf-clipping.test.ts
 PASS src/gradient-line-ttf-bilinear.test.ts
-PASS src/bm-valign-extended.test.ts
+PASS src/outline-ttf.test.ts
 PASS src/rendering-bugs.test.ts
-PASS src/gradient-line-bm.test.ts
-PASS src/gradient-te-shift.test.ts
+PASS src/gradient-ttf-underline.test.ts
+PASS src/gradient-line-ttf.test.ts
+PASS src/styled-label-render.test.ts
 PASS src/gradient-ttf.test.ts
-PASS src/gradient-kerning.test.ts
-PASS src/system-font-valign.test.ts
-PASS src/bm-valign.test.ts
+PASS src/ttf-font-valign.test.ts
 PASS src/gradient-ttf-bilinear.test.ts
+PASS src/gradient-kerning.test.ts
+PASS src/bm-valign-extended.test.ts
 PASS src/valign-integration.test.ts
-PASS src/gradient-throws.test.ts
-PASS src/gradient-disabled.test.ts
+PASS src/layout.test.ts
 PASS src/gradient-bm.test.ts
+PASS src/gradient-te-shift.test.ts
+PASS src/gradient-line-bm.test.ts
+PASS src/gradient-throws.test.ts
+PASS src/system-font-valign.test.ts
+PASS src/gradient-disabled.test.ts
+PASS src/bm-valign.test.ts
 PASS src/outline-bm.test.ts
 
 Test Suites: 24 passed, 24 total
-Tests:       218 passed, 218 total
+Tests:       223 passed, 223 total
 Snapshots:   0 total
-Time:        3.043 s
+Time:        3.437 s
