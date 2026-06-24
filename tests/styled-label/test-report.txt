@@ -1,8 +1,8 @@
-styled-label Test Report — 2026-06-24 13:42:10
-Duration : 5s
+styled-label Test Report — 2026-06-24 14:51:30
+Duration : 4s
 Node     : v25.8.1
 Result   : PASSED
 Suites   : Test Suites: 24 passed, 24 total
-Tests    : Tests:       223 passed, 223 total
+Tests    : Tests:       232 passed, 232 total
 
 Full log : /Volumes/MacExternal/workspace/styled-label/tests/styled-label/test-results.log

@@ -198,7 +198,11 @@ export class HtmlTextParser {
         if (!text) return;
         for (const [rx, rep] of this._specialSymbols) text = text.replace(rx, rep);
         const style = this._stack.length > 0 ? this._stack[this._stack.length - 1] : undefined;
-        this._result.push({ text, style });
+        const parts = text.split(/\r?\n/);
+        for (let i = 0; i < parts.length; i++) {
+            if (i > 0) this._result.push({ text: '', style: { isNewLine: true } });
+            if (parts[i]) this._result.push({ text: parts[i], style });
+        }
     }
 }
 

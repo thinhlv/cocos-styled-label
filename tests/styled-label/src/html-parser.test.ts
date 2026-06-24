@@ -77,6 +77,72 @@ describe("HtmlTextParser", () => {
     expect(newlines).toHaveLength(2);
   });
 
+  // ── \n escape (parity with native Label / shared lang files) ─────────────
+
+  test('"\\n" alone produces exactly one newline segment and no text', () => {
+    const result = parser.parse("\n");
+    const newlines = result.filter((s) => s.style?.isNewLine);
+    expect(newlines).toHaveLength(1);
+    const texts = result.filter((s) => s.text && !s.style?.isNewLine);
+    expect(texts).toHaveLength(0);
+  });
+
+  test('"line1\\nline2" → line1, newline, line2', () => {
+    const result = parser.parse("line1\nline2");
+    const newlines = result.filter((s) => s.style?.isNewLine);
+    expect(newlines).toHaveLength(1);
+    const texts = result.filter((s) => s.text && !s.style?.isNewLine).map((s) => s.text);
+    expect(texts).toContain("line1");
+    expect(texts).toContain("line2");
+  });
+
+  test('"\\r\\n" is normalized to a single newline', () => {
+    const result = parser.parse("a\r\nb");
+    const newlines = result.filter((s) => s.style?.isNewLine);
+    expect(newlines).toHaveLength(1);
+    const texts = result.filter((s) => s.text && !s.style?.isNewLine).map((s) => s.text);
+    expect(texts).toContain("a");
+    expect(texts).toContain("b");
+  });
+
+  test('"a\\n\\nb" produces two consecutive newline segments', () => {
+    const result = parser.parse("a\n\nb");
+    const newlines = result.filter((s) => s.style?.isNewLine);
+    expect(newlines).toHaveLength(2);
+  });
+
+  test("style from surrounding tag is preserved across \\n", () => {
+    const result = parser.parse("<b>a\nb</b>");
+    const aSeg = result.find((s) => s.text === "a");
+    const bSeg = result.find((s) => s.text === "b");
+    expect(aSeg).toBeDefined();
+    expect(bSeg).toBeDefined();
+    expect(aSeg!.style?.bold).toBe(true);
+    expect(bSeg!.style?.bold).toBe(true);
+  });
+
+  test('mixing "\\n" and "<br/>" both contribute newline segments', () => {
+    const result = parser.parse("a\n<br/>b");
+    const newlines = result.filter((s) => s.style?.isNewLine);
+    expect(newlines).toHaveLength(2);
+  });
+
+  test('leading "\\n" produces a newline segment before text', () => {
+    const result = parser.parse("\nabc");
+    const newlineIdx = result.findIndex((s) => s.style?.isNewLine);
+    const textIdx = result.findIndex((s) => s.text === "abc");
+    expect(newlineIdx).toBeGreaterThanOrEqual(0);
+    expect(textIdx).toBeGreaterThan(newlineIdx);
+  });
+
+  test('trailing "\\n" produces a newline segment after text', () => {
+    const result = parser.parse("abc\n");
+    const newlineIdx = result.findIndex((s) => s.style?.isNewLine);
+    const textIdx = result.findIndex((s) => s.text === "abc");
+    expect(textIdx).toBeGreaterThanOrEqual(0);
+    expect(newlineIdx).toBeGreaterThan(textIdx);
+  });
+
   // ── sprite ───────────────────────────────────────────────────────────────
 
   test("<sprite=name> emits sprite segment with spriteName", () => {

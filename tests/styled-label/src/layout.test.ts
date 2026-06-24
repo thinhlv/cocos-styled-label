@@ -126,6 +126,14 @@ describe("buildLayout — line breaking", () => {
     const result = buildLayout(makeParams({ segments }));
     expect(result.lines.length).toBeGreaterThanOrEqual(2);
   });
+
+  test('"\\n" in parser input produces a new line at layout', () => {
+    const segments = new HtmlTextParser().parse("a\nb");
+    const result = buildLayout(makeParams({ segments }));
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[0].words.some((w) => w.text.includes("a"))).toBe(true);
+    expect(result.lines[1].words.some((w) => w.text.includes("b"))).toBe(true);
+  });
 });
 
 // ── vertical alignment ────────────────────────────────────────────────────────
