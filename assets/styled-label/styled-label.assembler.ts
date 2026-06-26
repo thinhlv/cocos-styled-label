@@ -1,4 +1,4 @@
-import { _decorator, UIRenderer, RenderData, Enum, Color } from 'cc';
+import { _decorator, UIRenderer, RenderData, Enum, Color, SpriteFrame } from 'cc';
 import { GradientScope, HAlign, VAlign } from './styled-label.layout';
 import type { StyledLabel } from './styled-label';
 
@@ -6,7 +6,7 @@ export type { IBMGlyph, IBMFntConfig, IBMQuadInfo, IBMLineBounds };
 export { StyledLabelMargin, StyledLabelSpacing, StyledLabelAlign, StyledLabelGradient, StyledLabelOutline };
 // export { GradientScope };
 export { _quadAssembler, _bmAssembler };
-export { _localVertUpdate, _uvUpdate, _colorUpdate, _bmApplyNodeColor };
+export { _localVertUpdate, _uvUpdate, _colorUpdate, _bmApplyNodeColor, _bmComputeGlyphUV, _bmWriteQuadUVs, _bmRefreshQuadUVs };
 
 const { ccclass, property } = _decorator;
 
@@ -29,6 +29,7 @@ interface IBMFntConfig {
 interface IBMQuadInfo {
     xl: number; xr: number; yb: number; yt: number;
     u0: number; v0: number; u1: number; v1: number;
+    grX: number; grY: number; grW: number; grH: number;
     r: number;  g: number;  b: number;  a: number;
     lineIndex: number;
     isOutline?: boolean;
@@ -176,6 +177,92 @@ function _colorUpdate(comp: StyledLabel): void {
     for (let i = 0, o = 5; i < 4; i++, o += stride) {
         vb[o] = r / 255; vb[o + 1] = g / 255; vb[o + 2] = b / 255; vb[o + 3] = a / 255;
     }
+}
+
+// ─── BM glyph UV (mirrors Cocos bmfontUtils.generateVertexData + _determineRect) ─
+
+function _bmAdjustGlyphRect(
+    glyphRect: { x: number; y: number; width: number; height: number },
+    sf: SpriteFrame,
+): { x: number; y: number; width: number; height: number; rotated: boolean } {
+    const frameRect = sf.rect ?? { x: 0, y: 0, width: sf.width, height: sf.height };
+    const offset = sf.offset ?? { x: 0, y: 0 };
+    const originalSize = sf.getOriginalSize?.() ?? { width: frameRect.width, height: frameRect.height };
+    const trimmedLeft = offset.x + (originalSize.width - frameRect.width) / 2;
+    const trimmedTop = offset.y - (originalSize.height - frameRect.height) / 2;
+    const rotated = sf.isRotated?.() ?? false;
+
+    let x = glyphRect.x;
+    let y = glyphRect.y;
+    let width = glyphRect.width;
+    let height = glyphRect.height;
+
+    if (!rotated) {
+        x += frameRect.x - trimmedLeft;
+        y += frameRect.y + trimmedTop;
+    } else {
+        const originalX = x;
+        x = frameRect.x + frameRect.height - y - height - trimmedTop;
+        y = originalX + frameRect.y - trimmedLeft;
+        if (y < 0) {
+            height += trimmedTop;
+        }
+    }
+
+    return { x, y, width, height, rotated };
+}
+
+function _bmComputeGlyphUV(
+    glyphRect: { x: number; y: number; width: number; height: number },
+    sf: SpriteFrame,
+): { u0: number; v0: number; u1: number; v1: number } {
+    const texW = sf.width || 1;
+    const texH = sf.height || 1;
+    const { x, y, width, height, rotated } = _bmAdjustGlyphRect(glyphRect, sf);
+
+    if (!rotated) {
+        const u0 = x / texW;
+        const u1 = (x + width) / texW;
+        const v0 = y / texH;
+        const v1 = (y + height) / texH;
+        return { u0, v0, u1, v1 };
+    }
+
+    const l = x / texW;
+    const r = (x + height) / texW;
+    const t = y / texH;
+    const b = (y + width) / texH;
+    return { u0: l, v0: t, u1: r, v1: b };
+}
+
+function _bmWriteQuadUVs(comp: StyledLabel): void {
+    const rd = comp.renderData as RenderData;
+    if (!rd || rd.vertexCount === 0) return;
+    const vb = (rd as any).chunk.vb as Float32Array;
+    const stride = rd.floatStride;
+    const quads = comp._bmQuads;
+    for (let q = 0; q < quads.length; q++) {
+        const qi = quads[q];
+        const base = q * 4;
+        // UV: BL(u0,v1)  BR(u1,v1)  TL(u0,v0)  TR(u1,v0)
+        vb[base * stride + 3] = qi.u0;     vb[base * stride + 4] = qi.v1;
+        vb[(base + 1) * stride + 3] = qi.u1; vb[(base + 1) * stride + 4] = qi.v1;
+        vb[(base + 2) * stride + 3] = qi.u0; vb[(base + 2) * stride + 4] = qi.v0;
+        vb[(base + 3) * stride + 3] = qi.u1; vb[(base + 3) * stride + 4] = qi.v0;
+    }
+}
+
+function _bmRefreshQuadUVs(comp: StyledLabel, sf: SpriteFrame): void {
+    const quads = comp._bmQuads;
+    for (let q = 0; q < quads.length; q++) {
+        const qi = quads[q];
+        const uv = _bmComputeGlyphUV({ x: qi.grX, y: qi.grY, width: qi.grW, height: qi.grH }, sf);
+        qi.u0 = uv.u0;
+        qi.v0 = uv.v0;
+        qi.u1 = uv.u1;
+        qi.v1 = uv.v1;
+    }
+    _bmWriteQuadUVs(comp);
 }
 
 // ─── BM glyph assembler (BitmapFont GPU path) ─────────────────────────────────

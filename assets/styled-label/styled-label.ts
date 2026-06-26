@@ -1,6 +1,6 @@
 import {
     _decorator, UIRenderer, SpriteFrame, SpriteAtlas, Texture2D, Font, BitmapFont,
-    Color, Rect, Enum, RenderData, BitMask, Node, view,
+    Color, Rect, Enum, RenderData, BitMask, Node, view, dynamicAtlasManager,
 } from 'cc';
 import { EDITOR } from 'cc/env';
 import {
@@ -12,6 +12,7 @@ import {
     StyledLabelMargin, StyledLabelSpacing, StyledLabelAlign, StyledLabelGradient, StyledLabelOutline,
     _quadAssembler, _bmAssembler,
     _localVertUpdate, _uvUpdate, _colorUpdate, _bmApplyNodeColor,
+    _bmComputeGlyphUV, _bmWriteQuadUVs, _bmRefreshQuadUVs,
 } from './styled-label.assembler';
 import type { IBMGlyph, IBMFntConfig, IBMQuadInfo, IBMLineBounds } from './styled-label.assembler';
 import { ISpriteRenderer, WebSpriteRenderer, NativeSpriteRenderer } from './styled-label.sprite-renderer';
@@ -191,6 +192,8 @@ export class StyledLabel extends UIRenderer {
     public _bmQuads: IBMQuadInfo[] = [];
     public _bmLines: IBMLineBounds[] = [];
     private _bmSpriteFrame: SpriteFrame | null = null;
+    private _bmAtlasKey = '';
+    private _bmUvDirty = false;
 
     // ── Shared state ──────────────────────────────────────────────────────────
 
@@ -759,17 +762,43 @@ export class StyledLabel extends UIRenderer {
 
     // ── Private: BitmapFont GPU path ──────────────────────────────────────────
 
+    private _bmAtlasFrameKey(sf: SpriteFrame): string {
+        const r = sf.rect;
+        return `${(sf.texture as Texture2D | null)?.uuid ?? ''}:${r?.x ?? 0}:${r?.y ?? 0}:${sf.width}:${sf.height}`;
+    }
+
     private _doBMUpdate(w: number, h: number, layout: ILayoutResult | null): void {
         const font = this.font as BitmapFont;
         const sf = font.spriteFrame;
         if (!sf) return;
+
+        dynamicAtlasManager.packToDynamicAtlas(this, sf);
+        const atlasKey = this._bmAtlasFrameKey(sf);
+        const atlasChanged = atlasKey !== this._bmAtlasKey;
+        if (atlasChanged) {
+            this._bmAtlasKey = atlasKey;
+            this._bmUvDirty = true;
+        }
 
         this._bmSpriteFrame = sf;
         const tf = (this.node as any)._getUITransformComp()!;
         const ax = tf.anchorX, ay = tf.anchorY;
 
         const sizeChanged = w !== this._prevW || h !== this._prevH;
-        if (!this._contentDirty && !this._paintDirty && !sizeChanged) {
+
+        if (this._bmUvDirty && !this._contentDirty && !sizeChanged && this._bmQuads.length > 0) {
+            _bmRefreshQuadUVs(this, sf);
+            this._bmUvDirty = false;
+            const rd = this._renderData as RenderData;
+            if (rd) {
+                rd.textureDirty = true;
+                rd.vertDirty = true;
+                rd.updateRenderData(this, sf);
+            }
+            return;
+        }
+
+        if (!this._contentDirty && !this._paintDirty && !sizeChanged && !this._bmUvDirty) {
             const rd = this._renderData as RenderData;
             if (rd) rd.updateRenderData(this, sf);
             return;
@@ -779,6 +808,7 @@ export class StyledLabel extends UIRenderer {
         if (!this._contentDirty && !sizeChanged && this._paintDirty && this._bmQuads.length > 0) {
             _bmApplyNodeColor(this);
             this._paintDirty = false;
+            this._bmUvDirty = false;
             const rd = this._renderData as RenderData;
             if (rd) rd.updateRenderData(this, sf);
             return;
@@ -804,6 +834,7 @@ export class StyledLabel extends UIRenderer {
         console.log(`[StyledLabel BM] endFrame overlay=${this._spriteRenderer.overlayRenderData ? 'yes' : 'no'}`);
         this._contentDirty = false;
         this._paintDirty = false;
+        this._bmUvDirty = false;
 
         const vCount = this._bmQuads.length * 4;
         const iCount = this._bmQuads.length * 6;
@@ -830,8 +861,6 @@ export class StyledLabel extends UIRenderer {
 
         if (vCount > 0) {
             const data = rd.data;
-            const vb = (rd as any).chunk.vb as Float32Array;
-            const stride = rd.floatStride;
             for (let q = 0; q < this._bmQuads.length; q++) {
                 const qi = this._bmQuads[q];
                 const base = q * 4;
@@ -839,12 +868,8 @@ export class StyledLabel extends UIRenderer {
                 data[base+1].x = qi.xr;   data[base+1].y = qi.yb;
                 data[base+2].x = qi.xl;   data[base+2].y = qi.yt;
                 data[base+3].x = qi.xr;   data[base+3].y = qi.yt;
-                // UV: BL(u0,v1)  BR(u1,v1)  TL(u0,v0)  TR(u1,v0)
-                vb[base*stride+3] = qi.u0;     vb[base*stride+4] = qi.v1;
-                vb[(base+1)*stride+3] = qi.u1; vb[(base+1)*stride+4] = qi.v1;
-                vb[(base+2)*stride+3] = qi.u0; vb[(base+2)*stride+4] = qi.v0;
-                vb[(base+3)*stride+3] = qi.u1; vb[(base+3)*stride+4] = qi.v0;
             }
+            _bmWriteQuadUVs(this);
             _bmApplyNodeColor(this);
             rd.vertDirty = true;
         }
@@ -858,8 +883,6 @@ export class StyledLabel extends UIRenderer {
         const sf = font.spriteFrame;
         if (!sf) return [];
 
-        const texW = (sf.texture as Texture2D)?.width || sf.width || 1;
-        const texH = (sf.texture as Texture2D)?.height || sf.height || 1;
         const nativeSize = cfg.commonHeight || cfg.fontSize || this.fontSize;
         const nativeBase = cfg.base ?? nativeSize;
 
@@ -972,21 +995,22 @@ export class StyledLabel extends UIRenderer {
                     const xr = gCanvasX + gW - anchorX * canvasW;
                     const yt = (1 - anchorY) * canvasH - gCanvasY;
                     const yb = (1 - anchorY) * canvasH - gCanvasY - gH;
-                    const u0 = g.rect.x / texW, u1 = (g.rect.x + g.rect.width) / texW;
-                    const v0 = g.rect.y / texH, v1 = (g.rect.y + g.rect.height) / texH;
+                    const glyphRect = { x: g.rect.x, y: g.rect.y, width: g.rect.width, height: g.rect.height };
+                    const { u0, v0, u1, v1 } = _bmComputeGlyphUV(glyphRect, sf);
+                    const gr = { grX: glyphRect.x, grY: glyphRect.y, grW: glyphRect.width, grH: glyphRect.height };
                     if (outlineOn) {
                         for (let s = 0; s < outlineStamps.length; s++) {
                             const st = outlineStamps[s];
                             quads.push({
                                 xl: xl + st.dx + outOffX, xr: xr + st.dx + outOffX,
                                 yb: yb - st.dy - outOffY, yt: yt - st.dy - outOffY,
-                                u0, v0, u1, v1,
+                                u0, v0, u1, v1, ...gr,
                                 r: outR, g: outG, b: outB, a: Math.round(outA * st.alpha),
                                 lineIndex: li, isOutline: true,
                             });
                         }
                     }
-                    quads.push({ xl, xr, yb, yt, u0, v0, u1, v1, r: cr, g: cg, b: cb, a: ca, lineIndex: li });
+                    quads.push({ xl, xr, yb, yt, u0, v0, u1, v1, ...gr, r: cr, g: cg, b: cb, a: ca, lineIndex: li });
                     glyphX += g.xAdvance * scale;
                 }
                 curX += word.w;

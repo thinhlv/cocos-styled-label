@@ -25,6 +25,9 @@ export class RenderData {
 
 export class Texture2D {
     static PixelFormat = { RGBA8888: 'rgba8888' };
+    uuid = 'tex-mock-uuid';
+    width = 1;
+    height = 1;
     private _gfx: object | null = {};
     reset(_opts: any) { this._gfx = {}; }
     getGFXTexture() { return this._gfx; }
@@ -34,10 +37,33 @@ export class Texture2D {
 
 export class SpriteFrame {
     packable = true;
-    texture: any = null;
-    rect: any = null;
+    texture: Texture2D | null = null;
+    rect: Rect | null = null;
+    offset = { x: 0, y: 0 };
     uv = new Array(8).fill(0.5);
+    _rotated = false;
+
+    get width(): number {
+        return this.texture?.width ?? 1;
+    }
+
+    get height(): number {
+        return this.texture?.height ?? 1;
+    }
+
+    getOriginalSize() {
+        const r = this.rect;
+        return { width: r?.width ?? this.width, height: r?.height ?? this.height };
+    }
+
+    isRotated(): boolean {
+        return this._rotated;
+    }
 }
+
+export const dynamicAtlasManager = {
+    packToDynamicAtlas(_comp: unknown, _frame: SpriteFrame | null): void {},
+};
 
 export class Rect {
     constructor(public x = 0, public y = 0, public width = 1, public height = 1) {}
