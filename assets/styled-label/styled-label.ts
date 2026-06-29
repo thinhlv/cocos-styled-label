@@ -1052,6 +1052,7 @@ export class StyledLabel extends UIRenderer {
         const gradOn = !!grad?.enabled;
         const gradLineScope = gradOn && grad!.scope === GradientScope.Line;
         let gradVertical = false;
+        let gradUniformSolid = false;
         let topCss = '', botCss = '';
         if (gradOn) {
             const tl = grad!.topLeft,    tr = grad!.topRight;
@@ -1059,6 +1060,7 @@ export class StyledLabel extends UIRenderer {
             const sameTop = tl.r === tr.r && tl.g === tr.g && tl.b === tr.b && tl.a === tr.a;
             const sameBot = bl.r === br.r && bl.g === br.g && bl.b === br.b && bl.a === br.a;
             gradVertical = sameTop && sameBot;
+            gradUniformSolid = _gradientUniformSolid(tl, tr, bl, br);
             if (gradVertical) {
                 topCss = _colorCss(tl);
                 botCss = _colorCss(bl);
@@ -1142,35 +1144,33 @@ export class StyledLabel extends UIRenderer {
                     for (const ch of word.text) {
                         const m = ctx.measureText(ch);
                         const cx = curX + ctx.measureText(prefix + ch).width - m.width;
-                        const ascentPx  = (m as any).actualBoundingBoxAscent  ?? wordAscent;
-                        const descentPx = (m as any).actualBoundingBoxDescent ?? 0;
+                        const { ascentPx, descentPx } = _glyphInkMetrics(m, wordAscent, size);
                         _paintBilinearGlyph(ctx, ch, fontStr, cx, drawY, ascentPx, descentPx,
                             grad!.topLeft, grad!.topRight, grad!.bottomLeft, grad!.bottomRight, uvBounds);
                         prefix += ch;
                     }
                 } else if (gradOn && gradVertical) {
-                    let prefix = "";
-                    for (const ch of word.text) {
-                        const m = ctx.measureText(ch);
-                        const cx = curX + ctx.measureText(prefix + ch).width - m.width;
-                        const ascentPx  = (m as any).actualBoundingBoxAscent  ?? wordAscent;
-                        const descentPx = (m as any).actualBoundingBoxDescent ?? 0;
-                        const yTop = drawY - ascentPx;
-                        const yBot = drawY + descentPx;
-                        const lg = ctx.createLinearGradient(0, yTop, 0, yBot);
+                    if (gradUniformSolid) {
+                        // All 4 corners identical — skip CanvasGradient (Safari clips fillText to
+                        // the gradient box; uniform color needs no gradient machinery).
+                        ctx.fillStyle = topCss;
+                        ctx.fillText(word.text, curX, drawY);
+                    } else {
+                        // Word-level vertical gradient with padded ink box (per-glyph boxes are
+                        // too tight on Safari when fontBoundingBox* is missing for custom TTF).
+                        const { ascentPx, descentPx } = _wordGlyphInkMetrics(ctx, word.text, wordAscent, size);
+                        const lg = ctx.createLinearGradient(0, drawY - ascentPx, 0, drawY + descentPx);
                         lg.addColorStop(0, topCss);
                         lg.addColorStop(1, botCss);
                         ctx.fillStyle = lg;
-                        ctx.fillText(ch, cx, drawY);
-                        prefix += ch;
+                        ctx.fillText(word.text, curX, drawY);
                     }
                 } else if (gradOn) {
                     let prefix = "";
                     for (const ch of word.text) {
                         const m = ctx.measureText(ch);
                         const cx = curX + ctx.measureText(prefix + ch).width - m.width;
-                        const ascentPx  = (m as any).actualBoundingBoxAscent  ?? wordAscent;
-                        const descentPx = (m as any).actualBoundingBoxDescent ?? 0;
+                        const { ascentPx, descentPx } = _glyphInkMetrics(m, wordAscent, size);
                         _paintBilinearGlyph(ctx, ch, fontStr, cx, drawY, ascentPx, descentPx,
                             grad!.topLeft, grad!.topRight, grad!.bottomLeft, grad!.bottomRight);
                         prefix += ch;
@@ -1224,6 +1224,59 @@ export class StyledLabel extends UIRenderer {
 
 function _colorCss(c: Color): string {
     return `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
+}
+
+function _colorsEqual(a: Color, b: Color): boolean {
+    return a.r === b.r && a.g === b.g && a.b === b.b && a.a === b.a;
+}
+
+function _gradientUniformSolid(tl: Color, tr: Color, bl: Color, br: Color): boolean {
+    return _colorsEqual(tl, tr) && _colorsEqual(tr, bl) && _colorsEqual(bl, br);
+}
+
+const _BASELINE_RATIO = 0.26;
+
+/** Ascent/descent for gradient bounds and temp-glyph sizing.
+ *  Safari + custom TTF (e.g. Copperplate) often omits fontBoundingBox* or reports
+ *  actualBoundingBox* smaller than painted ink; WebKit clips gradient fillText
+ *  to the gradient coordinate range. */
+function _glyphInkMetrics(m: TextMetrics, wordAscent: number, fontSize: number): { ascentPx: number; descentPx: number } {
+    const aba = (m as any).actualBoundingBoxAscent ?? wordAscent;
+    const abd = (m as any).actualBoundingBoxDescent ?? 0;
+    const fba = (m as any).fontBoundingBoxAscent as number | undefined;
+    const fbd = (m as any).fontBoundingBoxDescent as number | undefined;
+    const pad = Math.ceil(fontSize * _BASELINE_RATIO / 2);
+    const emAscent = wordAscent + pad;
+    const emDescent = pad;
+    let ascentPx = Math.max(aba, wordAscent);
+    let descentPx = Math.max(abd, 0);
+    if (fba != null && fba > 0) {
+        ascentPx = Math.max(ascentPx, fba);
+    } else {
+        ascentPx = Math.max(ascentPx, emAscent) + pad;
+    }
+    if (fbd != null && fbd > 0) {
+        descentPx = Math.max(descentPx, fbd);
+    } else {
+        descentPx = Math.max(descentPx, emDescent) + pad;
+    }
+    return { ascentPx, descentPx };
+}
+
+function _wordGlyphInkMetrics(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    wordAscent: number,
+    fontSize: number,
+): { ascentPx: number; descentPx: number } {
+    let ascentPx = wordAscent;
+    let descentPx = 0;
+    for (const ch of text) {
+        const ink = _glyphInkMetrics(ctx.measureText(ch), wordAscent, fontSize);
+        if (ink.ascentPx > ascentPx) ascentPx = ink.ascentPx;
+        if (ink.descentPx > descentPx) descentPx = ink.descentPx;
+    }
+    return { ascentPx, descentPx };
 }
 
 let _gradGlyphCanvas: HTMLCanvasElement | null = null;

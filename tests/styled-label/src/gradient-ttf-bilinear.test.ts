@@ -19,6 +19,7 @@ const capturedPuts: CapturedImg[] = [];
 // Glyph dimensions chosen so tmpW=tmpH=3 (with pad=1):
 // measureText.width = 1 → tmpW = ceil(1) + 2 = 3
 // ascent + descent = 1 → tmpH = ceil(1) + 2 = 3
+// Metrics include fontBoundingBox aligned with actual; wordAscent(1px) = 0.87 ≤ 0.87.
 const GLYPH_W = 3;
 const GLYPH_H = 3;
 
@@ -50,7 +51,13 @@ const ttfCtx: any = {
   font: "", fillStyle: "" as any, textBaseline: "",
   canvas: { width: 1, height: 1 },
   measureText(_t: string) {
-    return { width: 1, actualBoundingBoxAscent: 0.5, actualBoundingBoxDescent: 0.5 } as any;
+    return {
+      width: 1,
+      actualBoundingBoxAscent: 0.87,
+      actualBoundingBoxDescent: 0.13,
+      fontBoundingBoxAscent: 0.87,
+      fontBoundingBoxDescent: 0.13,
+    } as any;
   },
 };
 

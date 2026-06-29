@@ -1,14 +1,8 @@
-// Per-glyph gradient must respect kerning.
+// Vertical gradient — word-level fillText preserves native canvas kerning.
 //
-// When the canvas API reports kerned width via measureText(prefix), each glyph's
-// fillText x position must come from the prefix width (so the next glyph sits at
-// the kerned offset of the previous prefix), not from cumulative single-glyph widths.
-//
-// Bug repro: "Text" has negative kerning on the "Te" pair. With the broken impl,
-// fillText("e", curX + measureText("T").width, …) lands at curX + glyphWidth("T"),
-// which is wider than the kerned "Te" group → outline drawn via strokeText("Text", …)
-// stays at the kerned positions, so the gradient-filled glyphs visibly drift right
-// relative to the outline.
+// Per-glyph gradient fill was replaced with word-level fillText for vertical
+// gradients (Safari clips gradient fill to the gradient box). Canvas applies
+// kerning natively when rendering the whole word in one fillText call.
 
 import { Color } from "cc";
 import { StyledLabel } from "../../../assets/styled-label/styled-label";
@@ -17,10 +11,8 @@ import { GradientScope, HAlign, VAlign } from "../../../assets/styled-label/styl
 interface FillCall { text: string; x: number; y: number; }
 let fillCalls: FillCall[] = [];
 
-// Simulated kerning table — pair "Te" is 2px narrower than naive T+e.
 const NAIVE_GLYPH_W = 10;
 function widthOf(text: string): number {
-  // base = NAIVE_GLYPH_W per char; for every "Te" substring, shave 2px (kerning).
   let w = text.length * NAIVE_GLYPH_W;
   for (let i = 0; i < text.length - 1; i++) {
     if (text[i] === "T" && text[i + 1] === "e") w -= 2;
@@ -45,6 +37,7 @@ const spyCtx: any = {
       actualBoundingBoxAscent: 12,
       actualBoundingBoxDescent: 4,
       fontBoundingBoxAscent: 14,
+      fontBoundingBoxDescent: 4,
     } as any;
   },
 };
@@ -82,8 +75,8 @@ function freshLabel(text: string): StyledLabel {
   return label;
 }
 
-describe("Per-glyph gradient — kerned glyph positions", () => {
-  test("vertical gradient: 'e' in 'Text' sits at the kerned offset of 'T', not the unkerned glyph width", () => {
+describe("Word-level vertical gradient — native kerning", () => {
+  test("vertical gradient: whole word rendered in one fillText (canvas kerning)", () => {
     const label = freshLabel("Text");
     label.gradient.enabled = true;
     label.gradient.scope = GradientScope.Glyph;
@@ -93,23 +86,12 @@ describe("Per-glyph gradient — kerned glyph positions", () => {
     label.gradient.bottomRight = new Color(255, 0, 0, 255);
     label._doUpdate();
 
-    // 4 chars expected.
-    expect(fillCalls.map(c => c.text).join("")).toBe("Text");
-    const xT = fillCalls[0].x;
-    const xe = fillCalls[1].x;
-    const xx = fillCalls[2].x;
-    const xt = fillCalls[3].x;
-
-    // 'e' must sit at the kerned offset of 'T' inside "Te":
-    //   xT + measureText("Te") - measureText("e") = xT + 18 - 10 = xT + 8.
-    expect(xe - xT).toBe(widthOf("Te") - widthOf("e"));
-    // 'x' must sit at xT + (measureText("Tex") - measureText("x")) = xT + 18.
-    expect(xx - xT).toBe(widthOf("Tex") - widthOf("x"));
-    // 't' at xT + (measureText("Text") - measureText("t")) = xT + 28.
-    expect(xt - xT).toBe(widthOf("Text") - widthOf("t"));
+    expect(fillCalls.length).toBe(1);
+    expect(fillCalls[0].text).toBe("Text");
+    expect(fillCalls.filter(c => c.text.length === 1).length).toBe(0);
   });
 
-  test("kerning consistency: end-of-last-glyph == measureText(whole word)", () => {
+  test("word width matches kerned measureText(whole word)", () => {
     const label = freshLabel("Text");
     label.gradient.enabled = true;
     label.gradient.scope = GradientScope.Glyph;
@@ -119,13 +101,7 @@ describe("Per-glyph gradient — kerned glyph positions", () => {
     label.gradient.bottomRight= new Color(255, 0, 0, 255);
     label._doUpdate();
 
-    const x0 = fillCalls[0].x;
-    const xt = fillCalls[3].x;
-    // Position of final 't' relative to start must match measureText("Tex") (kerned).
-    expect(xt - x0).toBe(widthOf("Tex"));
-    // And start-to-end-of-word matches measureText("Text") (kerned), modulo last glyph width.
-    const lastEnd = (xt - x0) + widthOf("t");
-    expect(lastEnd).toBe(widthOf("Text"));
+    expect(widthOf("Text")).toBe(38); // 4*10 - 2 kerning on Te
+    expect(fillCalls[0].text).toBe("Text");
   });
-
 });

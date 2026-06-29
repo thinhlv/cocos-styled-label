@@ -105,28 +105,20 @@ function setGradientColors(label: StyledLabel) {
 }
 
 describe("'Te' glyph position invariance under gradient (TTF path)", () => {
-  test("gradient ON + Glyph scope: 'e' x must use kerned advance of 'T' within \"Te\", not naive measureText('T')", () => {
+  test("gradient ON + Glyph scope: word-level fillText uses native kerning (no per-glyph shift)", () => {
     const label = freshLabel("Te");
     label.gradient.enabled = true;
     label.gradient.scope = GradientScope.Glyph;
     setGradientColors(label);
     label._doUpdate();
 
-    const charFills = fillCalls.filter(c => c.text === "T" || c.text === "e");
-    expect(charFills.length).toBe(2);
-
-    const xT = charFills[0].x;
-    const xe = charFills[1].x;
-
-    // Contract: position of 'e' relative to 'T' must be the kerned advance of
-    // 'T' when followed by 'e', i.e. measureText("Te") - measureText("e") = 8.
-    // The broken implementation uses measureText("T") = 10 instead, which is
-    // what produces the visible right-shift of 'e' in the user's screenshot.
-    const kernedAdvance = widthOf("Te") - widthOf("e");
-    expect(xe - xT).toBe(kernedAdvance);
+    const wordFills = fillCalls.filter(c => c.text === "Te");
+    expect(wordFills.length).toBe(1);
+    const perCharFills = fillCalls.filter(c => c.text === "T" || c.text === "e");
+    expect(perCharFills.length).toBe(0);
   });
 
-  test("gradient ON + Glyph scope + outline ON: per-glyph fill of 'e' aligns with outline stroke of \"Te\"", () => {
+  test("gradient ON + Glyph scope + outline ON: fill and stroke share the same word origin", () => {
     const label = freshLabel("Te");
     label.outline.enabled = true;
     label.outline.thickness = 2;
@@ -137,17 +129,10 @@ describe("'Te' glyph position invariance under gradient (TTF path)", () => {
     label._doUpdate();
 
     const teStroke = strokeCalls.find(c => c.text === "Te");
+    const teFill = fillCalls.find(c => c.text === "Te");
     expect(teStroke).toBeDefined();
-
-    const eFill = fillCalls.find(c => c.text === "e");
-    expect(eFill).toBeDefined();
-
-    // Inside the canvas-native strokeText("Te", xWord, ...), 'e' is drawn at
-    // xWord + kernedAdvance(T in "Te"). The per-glyph gradient fill of 'e'
-    // must hit the same x or the outline becomes visible as a gap on the
-    // left side of 'e' — which is exactly the bug the screenshot shows.
-    const expectedEx = teStroke!.x + (widthOf("Te") - widthOf("e"));
-    expect(eFill!.x).toBe(expectedEx);
+    expect(teFill).toBeDefined();
+    expect(teFill!.x).toBe(teStroke!.x);
   });
 
   test("gradient ON + Line scope: 'Te' is drawn as a single fillText (canvas handles kerning natively, no shift)", () => {

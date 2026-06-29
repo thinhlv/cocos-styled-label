@@ -1,11 +1,11 @@
-// TTF gradient — per-glyph vertical gradient via ctx.createLinearGradient().
+// TTF gradient — vertical gradient via ctx.createLinearGradient() per word.
 //
-// Expectation: for each character in the rendered string, _drawContent must:
+// Expectation: for each word in the rendered string, _drawContent must:
 //   1. Call ctx.createLinearGradient() with (0, top, 0, bot) where top<bot.
 //   2. Call addColorStop(0, ...) with topColor css.
 //   3. Call addColorStop(1, ...) with bottomColor css.
 //   4. Set ctx.fillStyle to the returned gradient object.
-//   5. Call ctx.fillText() with single char + advance x by measureText width.
+//   5. Call ctx.fillText() with the whole word at curX.
 
 import { Color } from "cc";
 import { StyledLabel } from "../../../assets/styled-label/styled-label";
@@ -92,8 +92,8 @@ function freshLabel(text: string): StyledLabel {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe("TTF gradient — per-glyph linearGradient", () => {
-  test("creates one linearGradient per character (5 chars → 5 gradients)", () => {
+describe("TTF gradient — word-level linearGradient", () => {
+  test("creates one linearGradient per word (Hello → 1 gradient, 1 fillText)", () => {
     const label = freshLabel("Hello");
     label.gradient.enabled = true;
     label.gradient.scope = GradientScope.Glyph;
@@ -103,10 +103,9 @@ describe("TTF gradient — per-glyph linearGradient", () => {
     label.gradient.bottomRight = new Color(255, 100, 50, 255);
     label._doUpdate();
 
-    expect(gradientsCreated.length).toBe(5);
-    expect(fillTextCalls.length).toBe(5);
-    // Each fillText draws a single char.
-    expect(fillTextCalls.map(c => c.text).join("")).toBe("Hello");
+    expect(gradientsCreated.length).toBe(1);
+    expect(fillTextCalls.length).toBe(1);
+    expect(fillTextCalls[0].text).toBe("Hello");
   });
 
   test("each gradient: addColorStop(0,...) = topLeft css, addColorStop(1,...) = bottomLeft css", () => {
@@ -143,7 +142,7 @@ describe("TTF gradient — per-glyph linearGradient", () => {
     expect(g.y0).toBeLessThan(g.y1);
   });
 
-  test("fillStyle at each fillText call is the gradient object (not a string)", () => {
+  test("fillStyle at fillText call is the gradient object (not a string)", () => {
     const label = freshLabel("ABC");
     label.gradient.enabled = true;
     label.gradient.topLeft     = new Color(0, 255, 0, 255);
@@ -152,11 +151,9 @@ describe("TTF gradient — per-glyph linearGradient", () => {
     label.gradient.bottomRight = new Color(255, 100, 50, 255);
     label._doUpdate();
 
-    expect(fillStyleAtFillText.length).toBe(3);
-    for (const fs of fillStyleAtFillText) {
-      expect(typeof fs).toBe("object");
-      expect(fs.__spy).toBeDefined();
-    }
+    expect(fillStyleAtFillText.length).toBe(1);
+    expect(typeof fillStyleAtFillText[0]).toBe("object");
+    expect(fillStyleAtFillText[0].__spy).toBeDefined();
   });
 
   test("disabled gradient: no linearGradient, single fillText per word with string fillStyle", () => {
