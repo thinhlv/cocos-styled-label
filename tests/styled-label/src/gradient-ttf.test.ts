@@ -1,62 +1,58 @@
-// TTF gradient — vertical gradient via ctx.createLinearGradient() per word.
+// TTF vertical 2-color gradient (TL=TR, BL=BR) — bilinear temp-canvas path.
 //
-// Expectation: for each word in the rendered string, _drawContent must:
-//   1. Call ctx.createLinearGradient() with (0, top, 0, bot) where top<bot.
-//   2. Call addColorStop(0, ...) with topColor css.
-//   3. Call addColorStop(1, ...) with bottomColor css.
-//   4. Set ctx.fillStyle to the returned gradient object.
-//   5. Call ctx.fillText() with the whole word at curX.
+// Safari/WebKit clips createLinearGradient + fillText when top pair equals bottom
+// pair colors; the engine routes this case through _paintBilinearGlyph instead.
 
 import { Color } from "cc";
 import { StyledLabel } from "../../../assets/styled-label/styled-label";
 import { GradientScope, HAlign, VAlign } from "../../../assets/styled-label/styled-label.layout";
 
-// ── Spying canvas mock ────────────────────────────────────────────────────────
+interface CapturedImg { data: Uint8ClampedArray; width: number; height: number }
+const capturedPuts: CapturedImg[] = [];
+let gradientsCreated = 0;
+let textWasDrawn = false;
 
-interface GradientStop { offset: number; color: string }
-interface SpyGradient { id: number; stops: GradientStop[] }
-
-let gradientsCreated: Array<{ x0: number; y0: number; x1: number; y1: number; spy: SpyGradient }> = [];
-let fillStyleAtFillText: any[] = [];
-let fillTextCalls: Array<{ text: string; x: number; y: number }> = [];
-let nextGradId = 1;
-
-const spyCtx: any = {
+const ttfCtx: any = {
   clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
   drawImage() {}, fillRect() {},
-  font: "",
-  fillStyle: "" as any,
-  textBaseline: "",
-  createLinearGradient(x0: number, y0: number, x1: number, y1: number) {
-    const spy: SpyGradient = { id: nextGradId++, stops: [] };
-    const obj = {
-      __spy: spy,
-      addColorStop(offset: number, color: string) { spy.stops.push({ offset, color }); },
-    };
-    gradientsCreated.push({ x0, y0, x1, y1, spy });
-    return obj;
+  fillText() { textWasDrawn = true; },
+  createLinearGradient() {
+    gradientsCreated++;
+    return { addColorStop: () => {} };
   },
-  fillText(text: string, x: number, y: number) {
-    fillStyleAtFillText.push(spyCtx.fillStyle);
-    fillTextCalls.push({ text, x, y });
+  getImageData(_x: number, _y: number, w: number, h: number) {
+    const d = new Uint8ClampedArray(w * h * 4);
+    if (textWasDrawn) {
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; d[i + 3] = 255;
+      }
+      textWasDrawn = false;
+    }
+    return { data: d, width: w, height: h };
   },
+  putImageData(img: any, _x: number, _y: number) {
+    capturedPuts.push({
+      data: new Uint8ClampedArray(img.data),
+      width: img.width,
+      height: img.height,
+    });
+  },
+  font: "", fillStyle: "" as any, textBaseline: "",
+  canvas: { width: 1, height: 1 },
   measureText(_t: string) {
-    const m = spyCtx.font.match(/(\d+(?:\.\d+)?)px/);
-    const fs = m ? parseFloat(m[1]) : 16;
     return {
-      width: fs * 0.6,
-      actualBoundingBoxAscent:  fs * 0.8,
-      actualBoundingBoxDescent: fs * 0.2,
-      fontBoundingBoxAscent: fs * 0.85,
+      width: 1,
+      actualBoundingBoxAscent: 0.87,
+      actualBoundingBoxDescent: 0.13,
+      fontBoundingBoxAscent: 0.87,
+      fontBoundingBoxDescent: 0.13,
     } as any;
   },
 };
 
 (global as any).document = {
-  createElement: (_tag: string) => ({ width: 1, height: 1, getContext: () => spyCtx }),
+  createElement: (_tag: string) => ({ width: 1, height: 1, getContext: () => ttfCtx }),
 };
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeNode() {
   const tf = { width: 300, height: 80, anchorX: 0.5, anchorY: 0.5 };
@@ -72,16 +68,15 @@ function freshLabel(text: string): StyledLabel {
   (StyledLabel as any)._mCtx = null;
   (StyledLabel as any)._measureCache?.clear();
   (StyledLabel as any)._inflatedMap = null;
-
-  gradientsCreated = [];
-  fillStyleAtFillText = [];
-  fillTextCalls = [];
+  capturedPuts.length = 0;
+  gradientsCreated = 0;
+  textWasDrawn = false;
 
   const label = new StyledLabel();
   (label as any).node = makeNode();
   label.string = text;
-  label.fontSize = 40;
-  label.lineHeight = 40;
+  label.fontSize = 1;
+  label.lineHeight = 1;
   label.wordWrap = false;
   label.align.horizontal = HAlign.LEFT;
   label.align.vertical = VAlign.TOP;
@@ -90,10 +85,8 @@ function freshLabel(text: string): StyledLabel {
   return label;
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe("TTF gradient — word-level linearGradient", () => {
-  test("creates one linearGradient per word (Hello → 1 gradient, 1 fillText)", () => {
+describe("TTF vertical 2-color gradient — bilinear path (Safari-safe)", () => {
+  test("Hello: one bilinear putImageData per character, no text linearGradient", () => {
     const label = freshLabel("Hello");
     label.gradient.enabled = true;
     label.gradient.scope = GradientScope.Glyph;
@@ -103,68 +96,29 @@ describe("TTF gradient — word-level linearGradient", () => {
     label.gradient.bottomRight = new Color(255, 100, 50, 255);
     label._doUpdate();
 
-    expect(gradientsCreated.length).toBe(1);
-    expect(fillTextCalls.length).toBe(1);
-    expect(fillTextCalls[0].text).toBe("Hello");
+    expect(capturedPuts.length).toBe(5);
+    expect(gradientsCreated).toBe(0);
   });
 
-  test("each gradient: addColorStop(0,...) = topLeft css, addColorStop(1,...) = bottomLeft css", () => {
-    const label = freshLabel("AB");
-    label.gradient.enabled = true;
-    label.gradient.topLeft     = new Color(0, 255, 0, 255);
-    label.gradient.topRight    = new Color(0, 255, 0, 255);
-    label.gradient.bottomLeft  = new Color(255, 100, 50, 255);
-    label.gradient.bottomRight = new Color(255, 100, 50, 255);
-    label._doUpdate();
-
-    for (const g of gradientsCreated) {
-      expect(g.spy.stops.length).toBe(2);
-      expect(g.spy.stops[0].offset).toBe(0);
-      expect(g.spy.stops[0].color).toBe("rgba(0,255,0,1)");
-      expect(g.spy.stops[1].offset).toBe(1);
-      expect(g.spy.stops[1].color).toBe("rgba(255,100,50,1)");
-    }
-  });
-
-  test("gradient y0 < y1 (top above bottom in canvas coords)", () => {
-    const label = freshLabel("X");
-    label.gradient.enabled = true;
-    label.gradient.topLeft     = new Color(0, 255, 0, 255);
-    label.gradient.topRight    = new Color(0, 255, 0, 255);
-    label.gradient.bottomLeft  = new Color(255, 100, 50, 255);
-    label.gradient.bottomRight = new Color(255, 100, 50, 255);
-    label._doUpdate();
-
-    expect(gradientsCreated.length).toBe(1);
-    const g = gradientsCreated[0];
-    expect(g.x0).toBe(0);
-    expect(g.x1).toBe(0);
-    expect(g.y0).toBeLessThan(g.y1);
-  });
-
-  test("fillStyle at fillText call is the gradient object (not a string)", () => {
-    const label = freshLabel("ABC");
-    label.gradient.enabled = true;
-    label.gradient.topLeft     = new Color(0, 255, 0, 255);
-    label.gradient.topRight    = new Color(0, 255, 0, 255);
-    label.gradient.bottomLeft  = new Color(255, 100, 50, 255);
-    label.gradient.bottomRight = new Color(255, 100, 50, 255);
-    label._doUpdate();
-
-    expect(fillStyleAtFillText.length).toBe(1);
-    expect(typeof fillStyleAtFillText[0]).toBe("object");
-    expect(fillStyleAtFillText[0].__spy).toBeDefined();
-  });
-
-  test("disabled gradient: no linearGradient, single fillText per word with string fillStyle", () => {
+  test("uniform solid: solid word fill, no bilinear temp canvas", () => {
     const label = freshLabel("Hello");
-    expect(label.gradient.enabled).toBe(false);
+    label.gradient.enabled = true;
+    label.gradient.scope = GradientScope.Glyph;
+    label.gradient.topLeft     = new Color(255, 255, 255, 255);
+    label.gradient.topRight    = new Color(255, 255, 255, 255);
+    label.gradient.bottomLeft  = new Color(255, 255, 255, 255);
+    label.gradient.bottomRight = new Color(255, 255, 255, 255);
     label._doUpdate();
 
-    expect(gradientsCreated.length).toBe(0);
-    // Word-level fillText: "Hello" rendered as 1 fillText call.
-    expect(fillTextCalls.length).toBe(1);
-    expect(fillTextCalls[0].text).toBe("Hello");
-    expect(typeof fillStyleAtFillText[0]).toBe("string");
+    expect(capturedPuts.length).toBe(0);
+    expect(gradientsCreated).toBe(0);
+  });
+
+  test("disabled gradient: no bilinear, no linearGradient", () => {
+    const label = freshLabel("Hello");
+    label._doUpdate();
+
+    expect(capturedPuts.length).toBe(0);
+    expect(gradientsCreated).toBe(0);
   });
 });

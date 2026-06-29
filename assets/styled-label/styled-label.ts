@@ -1051,20 +1051,11 @@ export class StyledLabel extends UIRenderer {
         const grad = this.gradient;
         const gradOn = !!grad?.enabled;
         const gradLineScope = gradOn && grad!.scope === GradientScope.Line;
-        let gradVertical = false;
         let gradUniformSolid = false;
-        let topCss = '', botCss = '';
         if (gradOn) {
             const tl = grad!.topLeft,    tr = grad!.topRight;
             const bl = grad!.bottomLeft, br = grad!.bottomRight;
-            const sameTop = tl.r === tr.r && tl.g === tr.g && tl.b === tr.b && tl.a === tr.a;
-            const sameBot = bl.r === br.r && bl.g === br.g && bl.b === br.b && bl.a === br.a;
-            gradVertical = sameTop && sameBot;
             gradUniformSolid = _gradientUniformSolid(tl, tr, bl, br);
-            if (gradVertical) {
-                topCss = _colorCss(tl);
-                botCss = _colorCss(bl);
-            }
         }
 
         for (let li = 0; li < lines.length; li++) {
@@ -1083,13 +1074,6 @@ export class StyledLabel extends UIRenderer {
             const lineYBot = lineY + line.lineH;
             const lineLeft = startX;
             const lineRight = startX + line.lineW;
-
-            let lineGrad: CanvasGradient | null = null;
-            if (gradLineScope && gradVertical && line.lineW > 0 && line.words.length > 0) {
-                lineGrad = ctx.createLinearGradient(0, lineYTop, 0, lineYBot);
-                lineGrad.addColorStop(0, topCss);
-                lineGrad.addColorStop(1, botCss);
-            }
 
             let curX = startX;
             for (let i = 0; i < line.words.length; i++) {
@@ -1135,45 +1119,28 @@ export class StyledLabel extends UIRenderer {
                     }
                     ctx.restore();
                 }
-                if (gradLineScope && gradVertical && lineGrad) {
-                    ctx.fillStyle = lineGrad;
-                    ctx.fillText(word.text, curX, drawY);
-                } else if (gradLineScope) {
-                    const uvBounds = { left: lineLeft, right: lineRight, top: lineYTop, bottom: lineYBot };
-                    let prefix = "";
-                    for (const ch of word.text) {
-                        const m = ctx.measureText(ch);
-                        const cx = curX + ctx.measureText(prefix + ch).width - m.width;
-                        const { ascentPx, descentPx } = _glyphInkMetrics(m, wordAscent, size);
-                        _paintBilinearGlyph(ctx, ch, fontStr, cx, drawY, ascentPx, descentPx,
-                            grad!.topLeft, grad!.topRight, grad!.bottomLeft, grad!.bottomRight, uvBounds);
-                        prefix += ch;
-                    }
-                } else if (gradOn && gradVertical) {
+                if (gradOn) {
                     if (gradUniformSolid) {
-                        // All 4 corners identical — skip CanvasGradient (Safari clips fillText to
-                        // the gradient box; uniform color needs no gradient machinery).
-                        ctx.fillStyle = topCss;
+                        // All 4 corners identical — solid fill (no CanvasGradient).
+                        ctx.fillStyle = _colorCss(grad!.topLeft);
                         ctx.fillText(word.text, curX, drawY);
                     } else {
-                        // Word-level vertical gradient with padded ink box (per-glyph boxes are
-                        // too tight on Safari when fontBoundingBox* is missing for custom TTF).
-                        const { ascentPx, descentPx } = _wordGlyphInkMetrics(ctx, word.text, wordAscent, size);
-                        const lg = ctx.createLinearGradient(0, drawY - ascentPx, 0, drawY + descentPx);
-                        lg.addColorStop(0, topCss);
-                        lg.addColorStop(1, botCss);
-                        ctx.fillStyle = lg;
-                        ctx.fillText(word.text, curX, drawY);
-                    }
-                } else if (gradOn) {
-                    let prefix = "";
-                    for (const ch of word.text) {
-                        const m = ctx.measureText(ch);
-                        const cx = curX + ctx.measureText(prefix + ch).width - m.width;
-                        const { ascentPx, descentPx } = _glyphInkMetrics(m, wordAscent, size);
-                        _paintBilinearGlyph(ctx, ch, fontStr, cx, drawY, ascentPx, descentPx,
-                            grad!.topLeft, grad!.topRight, grad!.bottomLeft, grad!.bottomRight);
-                        prefix += ch;
+                        // Bilinear per-glyph via temp canvas. Avoids Safari/WebKit bug where
+                        // createLinearGradient + fillText clips ink when top-left=top-right and
+                        // bottom-left=bottom-right (gradVertical); tiny corner color diff already
+                        // routed here and renders correctly.
+                        const uvBounds = gradLineScope
+                            ? { left: lineLeft, right: lineRight, top: lineYTop, bottom: lineYBot }
+                            : undefined;
+                        let prefix = "";
+                        for (const ch of word.text) {
+                            const m = ctx.measureText(ch);
+                            const cx = curX + ctx.measureText(prefix + ch).width - m.width;
+                            const { ascentPx, descentPx } = _glyphInkMetrics(m, wordAscent, size);
+                            _paintBilinearGlyph(ctx, ch, fontStr, cx, drawY, ascentPx, descentPx,
+                                grad!.topLeft, grad!.topRight, grad!.bottomLeft, grad!.bottomRight, uvBounds);
+                            prefix += ch;
+                        }
                     }
                 } else {
                     ctx.fillStyle = colorStr;
@@ -1259,22 +1226,6 @@ function _glyphInkMetrics(m: TextMetrics, wordAscent: number, fontSize: number):
         descentPx = Math.max(descentPx, fbd);
     } else {
         descentPx = Math.max(descentPx, emDescent) + pad;
-    }
-    return { ascentPx, descentPx };
-}
-
-function _wordGlyphInkMetrics(
-    ctx: CanvasRenderingContext2D,
-    text: string,
-    wordAscent: number,
-    fontSize: number,
-): { ascentPx: number; descentPx: number } {
-    let ascentPx = wordAscent;
-    let descentPx = 0;
-    for (const ch of text) {
-        const ink = _glyphInkMetrics(ctx.measureText(ch), wordAscent, fontSize);
-        if (ink.ascentPx > ascentPx) ascentPx = ink.ascentPx;
-        if (ink.descentPx > descentPx) descentPx = ink.descentPx;
     }
     return { ascentPx, descentPx };
 }

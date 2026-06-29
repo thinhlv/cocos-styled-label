@@ -1,15 +1,11 @@
-// Vertical gradient — word-level fillText preserves native canvas kerning.
-//
-// Per-glyph gradient fill was replaced with word-level fillText for vertical
-// gradients (Safari clips gradient fill to the gradient box). Canvas applies
-// kerning natively when rendering the whole word in one fillText call.
+// Per-glyph bilinear gradient must respect kerning (vertical 2-color uses bilinear on Safari).
 
 import { Color } from "cc";
 import { StyledLabel } from "../../../assets/styled-label/styled-label";
 import { GradientScope, HAlign, VAlign } from "../../../assets/styled-label/styled-label.layout";
 
-interface FillCall { text: string; x: number; y: number; }
-let fillCalls: FillCall[] = [];
+interface DrawCall { x: number; y: number; }
+let drawImageCalls: DrawCall[] = [];
 
 const NAIVE_GLYPH_W = 10;
 function widthOf(text: string): number {
@@ -20,9 +16,10 @@ function widthOf(text: string): number {
   return w;
 }
 
+let textWasDrawn = false;
 const spyCtx: any = {
   clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
-  drawImage() {}, fillRect() {}, strokeText() {},
+  fillRect() {}, strokeText() {},
   font: "",
   fillStyle: "" as any,
   strokeStyle: "" as any,
@@ -30,7 +27,18 @@ const spyCtx: any = {
   lineWidth: 1, lineJoin: "miter", miterLimit: 10,
   shadowColor: "rgba(0,0,0,0)", shadowBlur: 0,
   createLinearGradient() { return { addColorStop() {} }; },
-  fillText(text: string, x: number, y: number) { fillCalls.push({ text, x, y }); },
+  fillText() { textWasDrawn = true; },
+  drawImage(_img: any, x: number, y: number) { drawImageCalls.push({ x, y }); },
+  putImageData() {},
+  getImageData(_x: number, _y: number, w: number, h: number) {
+    const d = new Uint8ClampedArray(w * h * 4);
+    if (textWasDrawn) {
+      for (let i = 0; i < d.length; i += 4) { d[i + 3] = 255; }
+      textWasDrawn = false;
+    }
+    return { data: d, width: w, height: h };
+  },
+  canvas: { width: 400, height: 80 },
   measureText(t: string) {
     return {
       width: widthOf(t),
@@ -43,7 +51,7 @@ const spyCtx: any = {
 };
 
 (global as any).document = {
-  createElement: () => ({ width: 1, height: 1, getContext: () => spyCtx }),
+  createElement: () => ({ width: 400, height: 80, getContext: () => spyCtx }),
 };
 
 function makeNode() {
@@ -60,7 +68,8 @@ function freshLabel(text: string): StyledLabel {
   (StyledLabel as any)._mCtx = null;
   (StyledLabel as any)._measureCache?.clear();
   (StyledLabel as any)._inflatedMap = null;
-  fillCalls = [];
+  drawImageCalls = [];
+  textWasDrawn = false;
 
   const label = new StyledLabel();
   (label as any).node = makeNode();
@@ -75,8 +84,8 @@ function freshLabel(text: string): StyledLabel {
   return label;
 }
 
-describe("Word-level vertical gradient — native kerning", () => {
-  test("vertical gradient: whole word rendered in one fillText (canvas kerning)", () => {
+describe("Bilinear vertical gradient — kerned glyph positions", () => {
+  test("vertical 2-color: drawImage x positions follow kerning for each char", () => {
     const label = freshLabel("Text");
     label.gradient.enabled = true;
     label.gradient.scope = GradientScope.Glyph;
@@ -86,22 +95,15 @@ describe("Word-level vertical gradient — native kerning", () => {
     label.gradient.bottomRight = new Color(255, 0, 0, 255);
     label._doUpdate();
 
-    expect(fillCalls.length).toBe(1);
-    expect(fillCalls[0].text).toBe("Text");
-    expect(fillCalls.filter(c => c.text.length === 1).length).toBe(0);
-  });
+    expect(drawImageCalls.length).toBe(4);
+    const pad = 1;
+    const xT = drawImageCalls[0].x + pad;
+    const xe = drawImageCalls[1].x + pad;
+    const xx = drawImageCalls[2].x + pad;
+    const xt = drawImageCalls[3].x + pad;
 
-  test("word width matches kerned measureText(whole word)", () => {
-    const label = freshLabel("Text");
-    label.gradient.enabled = true;
-    label.gradient.scope = GradientScope.Glyph;
-    label.gradient.topLeft    = new Color(0, 255, 0, 255);
-    label.gradient.topRight   = new Color(0, 255, 0, 255);
-    label.gradient.bottomLeft = new Color(255, 0, 0, 255);
-    label.gradient.bottomRight= new Color(255, 0, 0, 255);
-    label._doUpdate();
-
-    expect(widthOf("Text")).toBe(38); // 4*10 - 2 kerning on Te
-    expect(fillCalls[0].text).toBe("Text");
+    expect(xe - xT).toBe(widthOf("Te") - widthOf("e"));
+    expect(xx - xT).toBe(widthOf("Tex") - widthOf("x"));
+    expect(xt - xT).toBe(widthOf("Text") - widthOf("t"));
   });
 });

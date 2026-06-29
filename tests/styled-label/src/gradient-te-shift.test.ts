@@ -1,33 +1,13 @@
-// Debug test: "Te" + gradient + Glyph scope shifts the 'e' glyph to the right.
-//
-// Symptom (TTF path, with outline enabled to make the misalignment visible):
-//   - gradient OFF                          → outline and fill of 'e' align.
-//   - gradient ON, scope = Line             → outline and fill of 'e' align.
-//   - gradient ON, scope = Glyph            → 'e' fill drifts right of outline.
-//
-// Contract being tested:
-//   Glyph screen position must not depend on whether gradient is enabled or on
-//   which gradient scope is chosen. The per-glyph fill in Glyph scope must hit
-//   the same x where the canvas would naturally place that glyph inside a
-//   whole-word render (i.e. honoring the kerned advance of the preceding
-//   characters as reported by measureText on the cumulative pair, not on the
-//   single previous character).
-//
-// Synthetic kerning model: every char is 10px wide; the pair "Te" has a -2px
-// kerning. Hence:
-//   measureText("T")  = 10
-//   measureText("e")  = 10
-//   measureText("Te") = 18  ← kerning applied
-//   kerned advance of 'T' inside "Te" = measureText("Te") - measureText("e") = 8
+// 'Te' + vertical gradient (TL=TR, BL=BR) — bilinear path, kerning via drawImage positions.
 
 import { Color } from "cc";
 import { StyledLabel } from "../../../assets/styled-label/styled-label";
 import { GradientScope, HAlign, VAlign } from "../../../assets/styled-label/styled-label.layout";
 
-interface FillCall   { text: string; x: number; y: number; }
+interface DrawCall { x: number; y: number; }
 interface StrokeCall { text: string; x: number; y: number; }
 
-let fillCalls: FillCall[] = [];
+let drawImageCalls: DrawCall[] = [];
 let strokeCalls: StrokeCall[] = [];
 
 const GLYPH_W = 10;
@@ -41,9 +21,10 @@ function widthOf(text: string): number {
   return w;
 }
 
+let textWasDrawn = false;
 const spyCtx: any = {
   clearRect() {}, save() {}, restore() {}, translate() {}, rotate() {},
-  drawImage() {}, fillRect() {},
+  fillRect() {},
   font: "",
   fillStyle: "" as any,
   strokeStyle: "" as any,
@@ -51,8 +32,19 @@ const spyCtx: any = {
   lineWidth: 1, lineJoin: "miter", miterLimit: 10,
   shadowColor: "rgba(0,0,0,0)", shadowBlur: 0,
   createLinearGradient() { return { addColorStop() {} }; },
-  fillText(text: string, x: number, y: number) { fillCalls.push({ text, x, y }); },
+  fillText() { textWasDrawn = true; },
   strokeText(text: string, x: number, y: number) { strokeCalls.push({ text, x, y }); },
+  drawImage(_img: any, x: number, y: number) { drawImageCalls.push({ x, y }); },
+  putImageData() {},
+  getImageData(_x: number, _y: number, w: number, h: number) {
+    const d = new Uint8ClampedArray(w * h * 4);
+    if (textWasDrawn) {
+      for (let i = 0; i < d.length; i += 4) { d[i + 3] = 255; }
+      textWasDrawn = false;
+    }
+    return { data: d, width: w, height: h };
+  },
+  canvas: { width: 400, height: 80 },
   measureText(t: string) {
     return {
       width: widthOf(t),
@@ -64,7 +56,7 @@ const spyCtx: any = {
 };
 
 (global as any).document = {
-  createElement: () => ({ width: 1, height: 1, getContext: () => spyCtx }),
+  createElement: () => ({ width: 400, height: 80, getContext: () => spyCtx }),
 };
 
 function makeNode() {
@@ -81,8 +73,9 @@ function freshLabel(text: string): StyledLabel {
   (StyledLabel as any)._mCtx = null;
   (StyledLabel as any)._measureCache?.clear();
   (StyledLabel as any)._inflatedMap = null;
-  fillCalls = [];
+  drawImageCalls = [];
   strokeCalls = [];
+  textWasDrawn = false;
 
   const label = new StyledLabel();
   (label as any).node = makeNode();
@@ -104,21 +97,22 @@ function setGradientColors(label: StyledLabel) {
   label.gradient.bottomRight = new Color(255, 0, 0, 255);
 }
 
-describe("'Te' glyph position invariance under gradient (TTF path)", () => {
-  test("gradient ON + Glyph scope: word-level fillText uses native kerning (no per-glyph shift)", () => {
+describe("'Te' glyph position under vertical gradient (bilinear path)", () => {
+  test("gradient ON + Glyph scope: 'e' drawImage x uses kerned advance of 'T'", () => {
     const label = freshLabel("Te");
     label.gradient.enabled = true;
     label.gradient.scope = GradientScope.Glyph;
     setGradientColors(label);
     label._doUpdate();
 
-    const wordFills = fillCalls.filter(c => c.text === "Te");
-    expect(wordFills.length).toBe(1);
-    const perCharFills = fillCalls.filter(c => c.text === "T" || c.text === "e");
-    expect(perCharFills.length).toBe(0);
+    expect(drawImageCalls.length).toBe(2);
+    const pad = 1;
+    const xT = drawImageCalls[0].x + pad;
+    const xe = drawImageCalls[1].x + pad;
+    expect(xe - xT).toBe(widthOf("Te") - widthOf("e"));
   });
 
-  test("gradient ON + Glyph scope + outline ON: fill and stroke share the same word origin", () => {
+  test("gradient ON + Glyph scope + outline: strokeText word origin matches first glyph drawImage", () => {
     const label = freshLabel("Te");
     label.outline.enabled = true;
     label.outline.thickness = 2;
@@ -129,35 +123,26 @@ describe("'Te' glyph position invariance under gradient (TTF path)", () => {
     label._doUpdate();
 
     const teStroke = strokeCalls.find(c => c.text === "Te");
-    const teFill = fillCalls.find(c => c.text === "Te");
     expect(teStroke).toBeDefined();
-    expect(teFill).toBeDefined();
-    expect(teFill!.x).toBe(teStroke!.x);
+    expect(drawImageCalls.length).toBe(2);
+    const pad = 1;
+    expect(drawImageCalls[0].x + pad).toBe(teStroke!.x);
   });
 
-  test("gradient ON + Line scope: 'Te' is drawn as a single fillText (canvas handles kerning natively, no shift)", () => {
+  test("gradient ON + Line scope: bilinear per char with line uvBounds", () => {
     const label = freshLabel("Te");
     label.gradient.enabled = true;
     label.gradient.scope = GradientScope.Line;
     setGradientColors(label);
     label._doUpdate();
 
-    // Line scope draws the whole word in one fillText, so there is no
-    // per-glyph positioning by the engine — the canvas places 'e' itself
-    // using its native kerning. No shift can occur.
-    const wordFills = fillCalls.filter(c => c.text === "Te");
-    expect(wordFills.length).toBe(1);
-    const perCharFills = fillCalls.filter(c => c.text === "T" || c.text === "e");
-    expect(perCharFills.length).toBe(0);
+    expect(drawImageCalls.length).toBe(2);
   });
 
-  test("gradient OFF: 'Te' is drawn as a single fillText (no shift possible)", () => {
+  test("gradient OFF: single fillText word (no bilinear)", () => {
     const label = freshLabel("Te");
     label._doUpdate();
 
-    const wordFills = fillCalls.filter(c => c.text === "Te");
-    expect(wordFills.length).toBe(1);
-    const perCharFills = fillCalls.filter(c => c.text === "T" || c.text === "e");
-    expect(perCharFills.length).toBe(0);
+    expect(drawImageCalls.length).toBe(0);
   });
 });

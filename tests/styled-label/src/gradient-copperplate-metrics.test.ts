@@ -292,19 +292,19 @@ describe("TTF gradient — Copperplate-like Safari metrics", () => {
     }
   });
 
-  test("[BUG] colored vertical gradient without fontBoundingBox: word gradient span is padded", () => {
+  test("[BUG] colored vertical gradient (TL=TR, BL=BR): bilinear temp canvas, no linearGradient", () => {
     const label = freshLabel("PLAY", SafariCopperplateNoFBA, FONT_SIZE);
     enableColoredVerticalGradient(label);
     label.onLoad(); label.onEnable();
     label._doUpdate();
 
-    expect(gradientsCreated.length).toBeGreaterThanOrEqual(1);
-    const required = paddedInkHeight(FONT_SIZE);
-    for (const g of gradientsCreated) {
-      expect(g.y1 - g.y0).toBeGreaterThanOrEqual(required - 0.01);
+    expect(gradientsCreated.length).toBe(0);
+    const evs = bilinearGlyphEvents();
+    expect(evs.length).toBe(4);
+    const required = Math.ceil(paddedInkHeight(FONT_SIZE)) + 2;
+    for (const ev of evs) {
+      expect(ev.canvasH).toBeGreaterThanOrEqual(required);
     }
-    // Word-level fill, not per-glyph.
-    expect(fillTextEvents.some(ev => ev.text === "PLAY")).toBe(true);
   });
 
   test("OpenSans-like control: uniform white uses solid bypass, no gradient", () => {
